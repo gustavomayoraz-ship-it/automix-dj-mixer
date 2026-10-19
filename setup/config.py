@@ -25,6 +25,15 @@ DEF_PUNTO_A = 0.0      # valores por defecto de la forma de cruce
 DEF_PUNTO_B = 0.15
 
 
+DEF_RAMPA_B = 0.12     # por bandas: cuánto tarda B en subir a pleno (fracción de la mezcla)
+
+
+DEF_FIN_A = 1.0        # por bandas: en qué punto termina de irse A (1.0 = automático: hasta el final)
+
+
+DEF_GAMMA_A = 1.0      # forma de la caída de A (1 = coseno de siempre · más alto = se achica antes)
+
+
 CAIDA_A = 0.20         # por bandas: el que sale cae casi en picada, en este tramo de la mezcla a partir de A
 
 

@@ -11,7 +11,7 @@ from setup.analisis import _cerrar_pool
 from setup.barra import BarraProgresoConMarca
 from setup.base import CONSOLA, log
 from setup.biblioteca import Biblioteca
-from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, guardar_config, leer_config
+from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, DEF_FIN_A, DEF_GAMMA_A, guardar_config, leer_config
 from setup.deck import Deck
 from setup.mezclador import GlobalMixer
 from setup.panel_cruce import PanelCruce
@@ -43,6 +43,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.punto_b = float(cfg.get("punto_b", DEF_PUNTO_B))
         self.cruce_ab = bool(cfg.get("cruce_ab", True))
         self.punto_s = float(cfg.get("punto_s", DEF_PUNTO_S))
+        self.rampa_b = float(cfg.get("rampa_b", DEF_RAMPA_B))
+        self.fin_a = float(cfg.get("fin_a", DEF_FIN_A))
+        self.gamma_a = float(cfg.get("gamma_a", DEF_GAMMA_A))
         self.cruce_bandas = bool(cfg.get("cruce_bandas", True))
         self.cruce_auto = bool(cfg.get("cruce_auto", False))      # False = cruce manual (los deslizadores) · True = Auto (lo diseña el programa)
         self.comp_nivel = bool(cfg.get("comp_nivel", True))

@@ -88,16 +88,25 @@ class AutomaticoMixin:
         if hasattr(self, "mixer"):
             self.mixer.comp_activo = self.comp_nivel
 
-    def set_forma_cruce(self, pa, pb, activo, ps=None, bandas=None):
+    def set_forma_cruce(self, pa, pb, activo, ps=None, bandas=None, rb=None, fa=None, gamma=None):
         _log_diferido("forma", "config", f"forma de cruce: A {pa:.0%} · B {pb:.0%} · activa {'sí' if activo else 'no'}"
-                      f"{'' if ps is None else f' · bajo {ps:.0%}'}{'' if bandas is None else f' · por bandas {chr(115)+chr(237) if bandas else chr(110)+chr(111)}'}")
+                      f"{'' if ps is None else f' · bajo {ps:.0%}'}{'' if bandas is None else f' · por bandas {chr(115)+chr(237) if bandas else chr(110)+chr(111)}'}"
+                      f"{'' if rb is None else f' · B sube en {rb:.0%}'}{'' if fa is None else f' · A termina {fa:.0%}'}"
+                      f"{'' if gamma is None else f' · forma A {gamma:.1f}'}")
         self.punto_a, self.punto_b, self.cruce_ab = float(pa), float(pb), bool(activo)
         if ps is not None:
             self.punto_s = float(ps)
         if bandas is not None:
             self.cruce_bandas = bool(bandas)
+        if rb is not None:
+            self.rampa_b = float(rb)
+        if fa is not None:
+            self.fin_a = float(fa)
+        if gamma is not None:
+            self.gamma_a = float(gamma)
         guardar_config(punto_a=self.punto_a, punto_b=self.punto_b, cruce_ab=self.cruce_ab,
-                       punto_s=self.punto_s, cruce_bandas=self.cruce_bandas)
+                       punto_s=self.punto_s, cruce_bandas=self.cruce_bandas,
+                       rampa_b=self.rampa_b, fin_a=self.fin_a, gamma_a=self.gamma_a)
         self._update_cf()
 
     def _auto_s_cambio(self, v):

@@ -69,7 +69,8 @@ class SyncMixin:
                 vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, pl["pa"], pl["pb"], pl["ps"], rampa=pl["rb"], fin_a=pl["fa"],
                                                              gamma_a=pl.get("gamma", 1.0))
             else:
-                vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s)
+                vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s, rampa=self.rampa_b,
+                                                             fin_a=(None if self.fin_a >= 0.995 else self.fin_a), gamma_a=self.gamma_a)
             if self._cf_dir == "AB":
                 hi_a, hi_b, lo_a, lo_b = vs_h, ve_h, vs_l, ve_l
             else:

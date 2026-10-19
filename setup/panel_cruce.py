@@ -4,7 +4,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
 from setup.ajustes import AJ, FUENTE_BOOST
-from setup.config import DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, perfil_cruce_ab, perfil_cruce_bandas
+from setup.config import DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_ab, perfil_cruce_bandas
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
 from setup.widgets import qss_marco
 
@@ -112,6 +112,19 @@ class PanelCruce(QFrame):
             return sl, lv
         self.sl_a, self.lv_a = fila("A (sale):", COLOR_DECK_A, ventana.punto_a, "Momento en que el tema que sale comienza a bajar.")
         self.sl_b, self.lv_b = fila("B (entra):", COLOR_DECK_B, ventana.punto_b, "Momento en que el tema que entra comienza a subir (por bandas: entra a nivel pleno, con una subida corta).")
+        def fila_g(texto, color, lo, hi, valor, tip):                  # deslizador con otro rango (valor entero)
+            r = QHBoxLayout()
+            l = QLabel(texto); l.setStyleSheet(f"color:{color}; font-weight:bold;"); l.setToolTip(tip)
+            sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setValue(int(valor)); sl.setToolTip(tip)
+            lv = QLabel(); lv.setMinimumWidth(40); lv.setAlignment(Qt.AlignmentFlag.AlignRight)
+            r.addWidget(l); r.addWidget(sl, 1); r.addWidget(lv); lay.addLayout(r)
+            return sl, lv
+        self.sl_rb, self.lv_rb = fila_g("B sube en:", COLOR_DECK_B, 2, 40, round(ventana.rampa_b * 100),
+                                        "Cuánto tarda B en subir a pleno una vez que entra (en % de la mezcla). Poco = entra de golpe · mucho = sube despacio.")
+        self.sl_fa, self.lv_fa = fila_g("A termina en:", COLOR_DECK_A, 50, 100, round(ventana.fin_a * 100),
+                                        "En qué punto de la mezcla termina de irse A. 100 % = automático (baja hasta el final). Menos = A se va antes y los dos dejan de sonar juntos antes.")
+        self.sl_g, self.lv_g = fila_g("Forma de A:", COLOR_DECK_A, 10, 25, round(ventana.gamma_a * 10),
+                                      "Forma de la caída de A. 1,0 = la curva de siempre · más alto = A achica sus medios y agudos antes (útil cuando las voces se pisan).")
         self.chk_bandas = QCheckBox("🎛 Por bandas")
         self.chk_bandas.setToolTip("Medios y agudos se cruzan con las curvas de arriba; el BAJO (bombo y bajo, <150 Hz) es de uno solo a la vez\ny se traspasa en la línea del compás, sin cortes ni empaste. Sin tilde: el cruce clásico por volumen.")
         self.chk_bandas.setChecked(ventana.cruce_bandas)
@@ -133,22 +146,50 @@ class PanelCruce(QFrame):
         lay.addWidget(self.btn_modo)
         self.sl_s, self.lv_s = fila("Bajo (cambia):", TEMA["verde"], ventana.punto_s, "Momento de la mezcla en que el bajo pasa del tema que sale al que entra (en la línea de compás más próxima). 0 % = el nuevo trae su bajo desde el principio · 95 % = el viejo mantiene el bajo casi hasta el final.")
         self.lbl_dur = QLabel(); self.lbl_dur.hide()
+        self.btn_copiar = QPushButton("📋 Copiar el último cruce Auto")
+        self.btn_copiar.setToolTip("Pasa al modo manual los valores del último cruce que diseñó el Auto (A, B, subida, fin de A, forma, bajo y duración),\npara que los puedas retocar o dejarlos fijos para todos los temas.")
+        self.btn_copiar.clicked.connect(self._copiar_auto)
+        lay.addWidget(self.btn_copiar)
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
         lay.addWidget(b_def)
         lay.addStretch()
 
         self.sl_a.valueChanged.connect(self._cambio); self.sl_b.valueChanged.connect(self._cambio)
         self.sl_s.valueChanged.connect(self._cambio); self.chk_bandas.toggled.connect(self._cambio)
+        for sl in (self.sl_rb, self.sl_fa, self.sl_g):
+            sl.valueChanged.connect(self._cambio)
         self.chk.toggled.connect(self._cambio)
         self._timer = QTimer(self); self._timer.timeout.connect(self._refrescar); self._timer.start(50)
-        self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
+        self._textos()
         self._pintar_modo()
+
+    def _textos(self):
+        self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
+        self.lv_rb.setText(f"{self.sl_rb.value()}%"); self.lv_fa.setText(f"{self.sl_fa.value()}%")
+        self.lv_g.setText(f"{self.sl_g.value() / 10.0:.1f}")
+
+    def _copiar_auto(self):
+        ul = getattr(self.v, "_ultimo_plan", None)
+        if not ul:
+            self.v._set_status("📋 Todavía no hay ningún cruce Auto para copiar: dejá que el Auto haga una mezcla primero")
+            return
+        self.btn_modo.setChecked(False)                                  # pasa a manual
+        self.sl_a.setValue(int(round(ul["pa"] * 100))); self.sl_b.setValue(int(round(ul["pb"] * 100)))
+        self.sl_rb.setValue(int(round(ul["rb"] * 100))); self.sl_fa.setValue(int(round(ul["fa"] * 100)))
+        self.sl_g.setValue(int(round(ul.get("gamma", 1.0) * 10))); self.sl_s.setValue(int(round(ul["ps"] * 100)))
+        try:
+            self.v.spin_mix.setValue(int(round(ul["dur"])))
+        except Exception:
+            pass
+        self.v._set_status("📋 Cruce Auto copiado al modo manual")
 
     def _pintar_modo(self):
         auto = self.btn_modo.isChecked()
         self.btn_modo.setText("🤖 Cruce: AUTO" if auto else "✋ Cruce: MANUAL")
         for w in (self.sl_a, self.sl_b):
             w.setEnabled(not auto)
+        for w in (self.sl_rb, self.sl_fa, self.sl_g):                    # estos tres solo existen "por bandas"
+            w.setEnabled(not auto and self.chk_bandas.isChecked())
         self.sl_s.setEnabled(self.chk_bandas.isChecked() and not auto)
 
     def _modo_cambio(self, auto):
@@ -161,6 +202,7 @@ class PanelCruce(QFrame):
 
     def _defecto(self):
         self.sl_a.setValue(int(round(DEF_PUNTO_A * 100))); self.sl_b.setValue(int(round(DEF_PUNTO_B * 100))); self.sl_s.setValue(int(round(DEF_PUNTO_S * 100)))
+        self.sl_rb.setValue(int(round(DEF_RAMPA_B * 100))); self.sl_fa.setValue(int(round(DEF_FIN_A * 100))); self.sl_g.setValue(int(round(DEF_GAMMA_A * 10)))
         self.chk.setChecked(True)               # forma de cruce A/B activada
         self.chk_bandas.setChecked(True)        # por bandas
         self.btn_modo.setChecked(False)         # cruce manual
@@ -171,10 +213,11 @@ class PanelCruce(QFrame):
             import traceback; traceback.print_exc()
 
     def _cambio(self, *_):
-        self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
-        self.sl_s.setEnabled(self.chk_bandas.isChecked() and not self.btn_modo.isChecked())
+        self._textos()
+        self._pintar_modo()
         self.v.set_forma_cruce(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, self.chk.isChecked(),
-                               self.sl_s.value() / 100.0, self.chk_bandas.isChecked())
+                               self.sl_s.value() / 100.0, self.chk_bandas.isChecked(),
+                               self.sl_rb.value() / 100.0, self.sl_fa.value() / 100.0, self.sl_g.value() / 10.0)
         self._refrescar()
 
     def _refrescar(self):
@@ -187,15 +230,17 @@ class PanelCruce(QFrame):
             self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, True)
         elif pl:                                           # durante una mezcla Auto, el gráfico muestra el cruce diseñado
             self.graf.actualizar(pl["pa"], pl["pb"], t, pl["ps"], True, pl["fa"], rb=pl["rb"], gamma=pl.get("gamma", 1.0),
-                                 etiqueta=f"🤖 AUTO · {pl['nombre']}")
+                                 etiqueta=f"🤖 AUTO · {pl['n']} comp · {pl['dur']:.0f} s + pausa")
         elif self.btn_modo.isChecked():                    # Auto sin mezcla en curso: el último cruce diseñado (o el aviso)
             ul = getattr(self.v, "_ultimo_plan", None)
             if ul:
                 self.graf.actualizar(ul["pa"], ul["pb"], None, ul["ps"], True, ul["fa"], rb=ul["rb"], gamma=ul.get("gamma", 1.0),
-                                     etiqueta=f"🤖 AUTO · último: {ul['nombre']}")
+                                     etiqueta=f"🤖 último: {ul['n']} comp · {ul['dur']:.0f} s")
             else:
                 self.graf.actualizar(0.0, 0.0, None, None, False, None, vacio="🤖 AUTO · cada cruce se diseña solo")
         else:
+            fa = self.sl_fa.value() / 100.0
             self.graf.actualizar(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, t,
-                                 self.sl_s.value() / 100.0, self.chk_bandas.isChecked() and self.chk.isChecked())
+                                 self.sl_s.value() / 100.0, self.chk_bandas.isChecked() and self.chk.isChecked(),
+                                 None if fa >= 0.995 else fa, rb=self.sl_rb.value() / 100.0, gamma=self.sl_g.value() / 10.0)
         self.lbl_dur.setText(f"⏱ Mezcla: {self.v.spin_mix.value()} s")
