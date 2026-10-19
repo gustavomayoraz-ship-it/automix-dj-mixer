@@ -322,6 +322,7 @@ class GlobalMixer:
         n, t = self._vig
         if self._cb_n != n:
             self._vig = (self._cb_n, ahora)
+            t = ahora                      # el audio avanzó desde la última vez: si la ventana se trabó un rato no es culpa de la salida (antes esto la reiniciaba y cortaba el sonido)
         muerto = self._stream_cayo or self._sin_salida_desde is not None
         if not muerto and s is not None:
             try:

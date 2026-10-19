@@ -93,6 +93,9 @@ class BibliotecaMixin:
         if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:     # no mover la lista mientras se arrastra un tema
             self._reordenar_pronto(500)
             return
+        if self.mix_timer.isActive() or self.mix_pausa_timer.isActive():     # durante una mezcla no se reordena la lista (con miles de temas traba la ventana)
+            self._reordenar_pronto(2500)
+            return
         try:
             self._ordenar_lista()
         except Exception:
