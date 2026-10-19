@@ -6,3 +6,6 @@ dependencias_offline/
 .venv/
 venv/
 grabaciones/
+
+respaldo_*/
+AutoMix.png
