@@ -11,6 +11,7 @@ from setup.base import CACHE_DIR
 
 
 _PRIORITARIOS = 0              # análisis de un deck esperando: la biblioteca le cede el turno
+_SONANDO = False               # algún deck está sonando (lo pone la ventana): el lote baja a UN solo proceso para no cortar el audio
 
 
 
@@ -109,8 +110,8 @@ class AnalizadorBiblioteca(QThread):
 
     @staticmethod
     def _num_trabajadores():
-        """Cuántos temas se analizan a la vez: la mitad de los núcleos, entre 1 y 3 (el resto queda para el audio y la ventana)."""
-        return max(1, min(3, (os.cpu_count() or 2) // 2))
+        """Cuántos temas se analizan a la vez: la mitad de los núcleos, entre 1 y 2 (el resto queda para el audio y la ventana)."""
+        return max(1, min(2, (os.cpu_count() or 2) // 2))
 
     def _analizar_todo(self):
         self._hechos = set()
@@ -136,11 +137,39 @@ class AnalizadorBiblioteca(QThread):
             return "clave", cache_key
         return None, cache_key
 
+    def _calentar(self):
+        """numba compila (y guarda en su caché) las funciones de librosa la PRIMERA vez que se usan. Si varios procesos lo hacen
+        a la vez en Windows pueden pisarse y morir ('access violation'). Por eso el primer tema de cada arranque se analiza
+        solo, en el proceso de siempre; recién después se lanzan varios a la vez."""
+        from setup import analisis as an
+        if an._CALENTADO:
+            return
+        for i, ruta in enumerate(self.rutas, 1):
+            if self.cancelar:
+                return
+            tarea, key = self._tarea(ruta)
+            if tarea is None:
+                continue
+            t0 = time.monotonic()
+            res = an.analizar_archivo(ruta, solo_clave=(tarea == "clave"))
+            if tarea == "full":
+                _guardar_cache(key, res)
+                print(f"Analizado: {os.path.basename(ruta)} -> {res['bpm']:.1f} BPM, clave {(res.get('key') or {}).get('camelot') or '?'}")
+            else:
+                with open(key, encoding="utf-8") as f:
+                    data = json.load(f)
+                data.update(res)
+                _guardar_cache(key, data)
+            self._hechos.add(ruta)
+            self.tema_listo.emit(ruta); self.progreso.emit(i, len(self.rutas))
+            return
+
     def _analizar_paralelo(self, n):
         from concurrent.futures import ProcessPoolExecutor, TimeoutError as _TO
         from concurrent.futures.process import BrokenProcessPool
         import multiprocessing
         from setup.analisis import TIMEOUT_ANALISIS, _analizar_archivo, _analizar_clave, _bajar_prioridad
+        self._calentar()
         ctx = multiprocessing.get_context("spawn")
         pw = Path(sys.executable).with_name("pythonw.exe")             # el hijo no abre ventana negra
         if os.name == "nt" and pw.exists():
@@ -154,12 +183,14 @@ class AnalizadorBiblioteca(QThread):
         falla = None
         try:
             while True:
-                while (not agotada and len(pend) < n * 2 and not self.cancelar and _PRIORITARIOS == 0):
+                while (not agotada and len(pend) < (1 if _SONANDO else n * 2) and not self.cancelar and _PRIORITARIOS == 0):
                     nxt = next(sig, None)
                     if nxt is None:
                         agotada = True
                         break
                     i, ruta = nxt
+                    if ruta in self._hechos:            # ya se hizo en el calentamiento
+                        continue
                     try:
                         tarea, key = self._tarea(ruta)
                     except Exception:
@@ -222,6 +253,12 @@ class AnalizadorBiblioteca(QThread):
                 except Exception:
                     pass
         if falla is not None:
+            if isinstance(falla, BrokenProcessPool):          # un proceso murió de golpe: la caché de numba pudo quedar a medias
+                try:
+                    from setup.analisis import _limpiar_cache_numba
+                    _limpiar_cache_numba()
+                except Exception:
+                    pass
             raise RuntimeError(f"{type(falla).__name__}")
 
     def _analizar_secuencial(self):

@@ -132,6 +132,9 @@ _POOL_USOS = 0                 # el proceso aparte se renueva cada tanto (un hij
 POOL_RENOVAR_CADA = 12
 
 
+_CALENTADO = False             # ya hubo un análisis completo en este arranque (numba ya compiló/cargó sus funciones)
+
+
 
 
 def _cerrar_pool():
@@ -156,6 +159,26 @@ def _cerrar_pool():
 
 
 
+def _limpiar_cache_numba():
+    """Si un proceso de análisis muere de golpe (fallo nativo dentro de numba/librosa, p. ej. 'access violation'), la caché de
+    funciones compiladas de librosa puede quedar a medias. Se borra para que numba la recompile limpia (tarda una sola vez)."""
+    n = 0
+    try:
+        base = Path(librosa.__file__).resolve().parent
+        for patron in ("*.nbi", "*.nbc"):
+            for f in base.rglob(patron):
+                try:
+                    f.unlink(); n += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    print(f"[análisis] caché de numba limpiada ({n} archivos): se recompila en el próximo análisis")
+    return n
+
+
+
+
 def _bajar_prioridad():
     """Se ejecuta dentro de cada proceso que analiza la biblioteca: prioridad baja, así el audio y la ventana no se traban."""
     try:
@@ -171,38 +194,85 @@ def _bajar_prioridad():
 
 
 
+_POOL_UNO = None
+_LOCK_UNO = threading.Lock()
+
+
+def _uno_en_proceso_aparte(path, beats):
+    """El "1" del compás en SU PROPIO proceso (prioridad baja) y con su propio candado: así nunca hace esperar el
+    análisis de un tema que se está cargando. Si ese proceso muere no se repite en el programa (lo tumbaría)."""
+    global _POOL_UNO
+    with _LOCK_UNO:
+        try:
+            if _POOL_UNO is None:
+                from concurrent.futures.process import ProcessPoolExecutor      # (import directo: en 3.15 el paquete los carga 'perezosos' y no se pueden llamar)
+                import multiprocessing
+                ctx = multiprocessing.get_context("spawn")
+                pw = Path(sys.executable).with_name("pythonw.exe")
+                if os.name == "nt" and pw.exists():
+                    ctx.set_executable(str(pw))
+                _POOL_UNO = ProcessPoolExecutor(max_workers=1, mp_context=ctx, initializer=_bajar_prioridad)
+            return _POOL_UNO.submit(_analizar_uno, (path, beats)).result(timeout=TIMEOUT_ANALISIS)
+        except Exception as e:
+            p, _POOL_UNO = _POOL_UNO, None
+            try:
+                procs = list((getattr(p, "_processes", None) or {}).values())
+                p.shutdown(wait=False, cancel_futures=True)
+                for pr in procs:
+                    pr.kill()
+            except Exception:
+                pass
+            raise RuntimeError(f"el cálculo del 1 falló ({type(e).__name__})")
+
+
+
+
 def analizar_archivo(path, solo_clave=False, solo_uno=None):
     """El análisis (librosa/numba) retiene el GIL por momentos y trababa el audio ('rrrr').
-    Se hace en un proceso aparte; si eso falla o se cuelga, se hace acá como antes."""
-    global _POOL, _POOL_BLOQ_HASTA, _POOL_USOS
+    Se hace en un proceso aparte. Si se cuelga o no se puede crear, se hace acá como antes. PERO si el proceso aparte
+    MUERE de golpe (fallo nativo), repetirlo en el programa mismo lo tumbaría: se reintenta una vez con un proceso limpio
+    (y la caché de numba recompilada) y, si vuelve a morir, ese tema da error sin llevarse puesto al programa."""
+    global _POOL, _POOL_BLOQ_HASTA, _POOL_USOS, _CALENTADO
+    if solo_uno is not None:
+        return _uno_en_proceso_aparte(path, solo_uno)
     with _LOCK_ANALISIS:
         if time.monotonic() >= _POOL_BLOQ_HASTA:
-            try:
-                if _POOL is None:
-                    from concurrent.futures import ProcessPoolExecutor
-                    import multiprocessing
-                    ctx = multiprocessing.get_context("spawn")
-                    pw = Path(sys.executable).with_name("pythonw.exe")      # el hijo no abre ventana negra
-                    if os.name == "nt" and pw.exists():
-                        ctx.set_executable(str(pw))
-                    _POOL = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
-                if solo_uno is not None:
-                    res = _POOL.submit(_analizar_uno, (path, solo_uno)).result(timeout=TIMEOUT_ANALISIS)
-                else:
-                    res = _POOL.submit(_analizar_clave if solo_clave else _analizar_archivo, path).result(timeout=TIMEOUT_ANALISIS)
-                _POOL_USOS += 1
-                if _POOL_USOS >= POOL_RENOVAR_CADA:
-                    _POOL_USOS = 0
+            from concurrent.futures._base import TimeoutError as _TO
+            from concurrent.futures.process import BrokenProcessPool
+            for intento in (1, 2):
+                try:
+                    if _POOL is None:
+                        from concurrent.futures.process import ProcessPoolExecutor      # (import directo: en 3.15 el paquete los carga 'perezosos' y no se pueden llamar)
+                        import multiprocessing
+                        ctx = multiprocessing.get_context("spawn")
+                        pw = Path(sys.executable).with_name("pythonw.exe")      # el hijo no abre ventana negra
+                        if os.name == "nt" and pw.exists():
+                            ctx.set_executable(str(pw))
+                        _POOL = ProcessPoolExecutor(max_workers=1, mp_context=ctx)
+                    if solo_uno is not None:
+                        res = _POOL.submit(_analizar_uno, (path, solo_uno)).result(timeout=TIMEOUT_ANALISIS)
+                    else:
+                        res = _POOL.submit(_analizar_clave if solo_clave else _analizar_archivo, path).result(timeout=TIMEOUT_ANALISIS)
+                    _POOL_USOS += 1
+                    _CALENTADO = True
+                    if _POOL_USOS >= POOL_RENOVAR_CADA:
+                        _POOL_USOS = 0
+                        _cerrar_pool()
+                    return res
+                except Exception as e:
                     _cerrar_pool()
-                return res
-            except Exception as e:
-                from concurrent.futures import TimeoutError as _TO
-                from concurrent.futures.process import BrokenProcessPool
-                _cerrar_pool()
-                _POOL_USOS = 0
-                if isinstance(e, (_TO, BrokenProcessPool, OSError)):
-                    _POOL_BLOQ_HASTA = time.monotonic() + 600.0
-                    print(f"[análisis] el proceso aparte falló ({type(e).__name__}); se analiza en el programa durante unos minutos")
+                    _POOL_USOS = 0
+                    if isinstance(e, BrokenProcessPool):
+                        print(f"[análisis] el proceso de análisis se cerró de golpe (intento {intento}/2)")
+                        _CALENTADO = False
+                        _limpiar_cache_numba()
+                        if intento == 1:
+                            continue
+                        raise RuntimeError("el proceso de análisis se cerró de golpe (BrokenProcessPool)")
+                    if isinstance(e, (_TO, OSError)):
+                        _POOL_BLOQ_HASTA = time.monotonic() + 600.0
+                        print(f"[análisis] el proceso aparte falló ({type(e).__name__}); se analiza en el programa durante unos minutos")
+                    break
         if solo_uno is not None:
             return _analizar_uno((path, solo_uno))
         return _analizar_clave(path) if solo_clave else _analizar_archivo(path)

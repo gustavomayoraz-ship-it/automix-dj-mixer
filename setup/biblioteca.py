@@ -202,7 +202,8 @@ class Biblioteca(QListWidget):
                 self.addItem(cab)
                 cerrada = carpeta in self._plegadas
                 nombre = os.path.basename(carpeta) or carpeta
-                cab.setText(("▶ " if cerrada else "▼ ") + "📁 " + nombre)
+                n_esp = sum(1 for it in grupos[carpeta] if self._clave(it.data(Qt.ItemDataRole.UserRole)) in self._cola)
+                cab.setText(self._texto_cab(carpeta, cerrada, n_esp))
                 cab.setToolTip(f"{origs[carpeta]}\n\nArrastrá este título para copiar TODA la carpeta afuera (a otra carpeta o al Escritorio).\nClic: abrir / cerrar.")
                 tot = sum((self.duracion(it.data(Qt.ItemDataRole.UserRole)) or 0) for it in grupos[carpeta])
                 cab.setData(Qt.ItemDataRole.UserRole + 3, f"{len(grupos[carpeta])}" + (f" / {self._fmt_dur(tot, True)}" if tot else ""))
@@ -211,6 +212,12 @@ class Biblioteca(QListWidget):
                     it.setHidden(cerrada)
         finally:
             self._cargando = prev
+
+    @staticmethod
+    def _texto_cab(carpeta, cerrada, n_esperando):
+        """Título de la carpeta; con ⏳ y la cantidad si adentro hay temas esperando su análisis (se ve aunque esté contraída)."""
+        nombre = os.path.basename(carpeta) or carpeta
+        return ("▶ " if cerrada else "▼ ") + "📁 " + nombre + (f"  ⏳ {n_esperando}" if n_esperando else "")
 
     def _clic_cab(self, it):
         if not self._es_cab(it):
@@ -291,11 +298,15 @@ class Biblioteca(QListWidget):
         prev = self._cargando
         self._cargando = True
         try:
+            pend = {}                                     # temas esperando su análisis, por carpeta (para el título)
             for i in range(self.count()):
                 it = self.item(i)
                 if self._es_cab(it):
                     continue
                 esperando = self._clave(it.data(Qt.ItemDataRole.UserRole)) in self._cola
+                if esperando:
+                    k_c = self._carpeta(it.data(Qt.ItemDataRole.UserRole))
+                    pend[k_c] = pend.get(k_c, 0) + 1
                 bpm, clave = self.info(it.data(Qt.ItemDataRole.UserRole))[:2]
                 pref = (f"{bpm:.0f} - " if bpm else "") + (f"[{clave}] " if clave else "")      # ej.: "124 - [8A] nombre del tema"
                 nom = self._nombre(it)
@@ -308,6 +319,13 @@ class Biblioteca(QListWidget):
                     it.setText(nuevo)
                 d = self.duracion(it.data(Qt.ItemDataRole.UserRole))
                 it.setData(Qt.ItemDataRole.UserRole + 3, self._fmt_dur(d) if d else None)
+            for i in range(self.count()):                 # títulos de carpeta: ⏳ n si hay temas pendientes adentro
+                it = self.item(i)
+                if self._es_cab(it):
+                    c = it.data(Qt.ItemDataRole.UserRole)
+                    nuevo = self._texto_cab(c, c in self._plegadas, pend.get(c, 0))
+                    if it.text() != nuevo:
+                        it.setText(nuevo)
         finally:
             self._cargando = prev
 

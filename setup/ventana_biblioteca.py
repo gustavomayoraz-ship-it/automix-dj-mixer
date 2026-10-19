@@ -27,9 +27,11 @@ class BibliotecaMixin:
         _mantener_vivo(a)
         a.progreso.connect(lambda i, t: self._set_status(f"{texto}: {i}/{t}"))
         a.tema_listo.connect(self.biblioteca.quitar_de_cola)
+        a.tema_listo.connect(lambda _r: self._actualizar_titulo_lib())      # Biblioteca (5/17)
         a.tema_listo.connect(lambda _r: self._reordenar_pronto())          # la lista se va ordenando a medida que se analiza
         a.terminado.connect(fin)
         self._analizador_bib = a
+        self._actualizar_titulo_lib()
         a.start()
 
     def _pendientes(self):
@@ -51,6 +53,7 @@ class BibliotecaMixin:
 
     def _fin_analisis(self):
         self.biblioteca.marcar(())
+        self._actualizar_titulo_lib()
         if self._fallidos is None:
             self._fallidos = set()
         for r in self.biblioteca.temas_sin_analisis():       # los que no se pudieron analizar no se reintentan en bucle
@@ -180,8 +183,17 @@ class BibliotecaMixin:
                 continue
             it.setHidden(bool(t) and t not in it.text().lower())
 
+    def _actualizar_titulo_lib(self):
+        """Título de la lista: 'Biblioteca (17)'; mientras se analiza, 'Biblioteca (5/17)' = analizados / total."""
+        total = len(self.biblioteca.todas())
+        pend = len(self.biblioteca._cola)
+        if pend and pend <= total:
+            self.lbl_lib.setText(f"📁 Biblioteca ({total - pend}/{total})")
+        else:
+            self.lbl_lib.setText(f"📁 Biblioteca ({total})")
+
     def _biblioteca_cambio(self):
-        self.lbl_lib.setText(f"📁 Biblioteca ({len(self.biblioteca.todas())})")
+        self._actualizar_titulo_lib()
         self.biblioteca.guardar()
         if self.biblioteca.count() == 0:
             self._vaciar_decks()

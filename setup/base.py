@@ -93,8 +93,15 @@ def asegurar_dependencias():
             return
     except Exception:
         pass
-    if all(_modulo_en_offline(m) for m, _pq in DEPENDENCIAS):      # todo instalado: ni abrir la ventana (ahorra ~1 s)
+    faltan = [m for m, _pq in DEPENDENCIAS if not _modulo_en_offline(m)]
+    if not faltan:                                      # todo instalado: ni abrir la ventana (ahorra ~1 s)
         return
+    try:                                                # deja constancia de POR QUÉ se abre el instalador
+        with open(CACHE_DIR / "dependencias.log", "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "  VERIFICACION: faltan " + ", ".join(faltan) +
+                    "  en " + str(OFFLINE) + "  (python " + sys.executable + ")\n")
+    except Exception:
+        pass
     try:
         import tkinter as tk
         from tkinter import ttk, messagebox

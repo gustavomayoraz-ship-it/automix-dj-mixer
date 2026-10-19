@@ -225,6 +225,11 @@ class MezclaMixin:
         return fin
 
     def _tick_auto_enganche(self):
+        try:
+            from setup import hilos_analisis as _ha
+            _ha._SONANDO = bool(self.deck_a.playing or self.deck_b.playing)
+        except Exception:
+            pass
         prim = self._deck_primario()
 
         if prim is not self._ultimo_deck_primario:
