@@ -2,6 +2,8 @@
 
 **AutoMix** es un mezclador DJ de escritorio hecho con **Python, PySide6 y librosa**. Tiene dos decks con crossfader, **mezcla automática (auto-DJ)**, **beat-matching** por BPM y tonalidad, y un **cruce A/B inteligente por bandas**: el programa analiza cada par de temas y diseña su propio crossfade (duración, entrada del tema que viene, salida del que sale y traspaso de graves en la línea del compás). Pensado para Windows.
 
+![AutoMix, mezclador DJ de dos decks](docs/captura.png)
+
 Palabras clave: DJ, auto DJ, automix, mezcla automática, crossfade, beatmatching, BPM, mezclador de dos decks, Python, PySide6, librosa.
 
 ## Características
