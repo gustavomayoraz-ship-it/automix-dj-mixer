@@ -7,6 +7,7 @@ from setup.ajustes import fmt_time
 from setup.analisis import compat_armonica
 from setup.base import _log_diferido, log
 from setup.config import guardar_config
+from setup import cruce_auto
 
 
 class MezclaMixin:
@@ -83,6 +84,7 @@ class MezclaMixin:
             except Exception:
                 import traceback; traceback.print_exc()
                 self._plan = None
+        self._pc_mix = None                                       # dónde se cruzan las dos líneas (para frenar ahí el crossfader)
         if self._plan:
             pl = self._plan
             self._ultimo_plan = pl
@@ -96,10 +98,16 @@ class MezclaMixin:
                 nivel = compat_armonica(ks, ke)
                 marca = {2: "✔ compatibles", 1: "≈ vecinas", 0: "✖ chocan → mezcla corta"}.get(nivel, "")
                 print(f"[mezcla] {ks or '?'} → {ke or '?'} {marca} · {duration_s:.1f} s")
+        if not self._plan and not simple:
+            try:
+                self._pc_mix = self._punto_cruce_manual()          # modo Manual: la misma lógica de frenado que el Auto, con tus deslizadores
+            except Exception:
+                import traceback; traceback.print_exc()
+                self._pc_mix = None
         interval_ms = 50
         self.mix_steps_total = int(duration_s * (1000.0 / interval_ms))
         self.mix_steps_done = 0
-        self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True))     # cruce simple: sin pausa · Auto: con pausa de 3 s al 50 % (salvo que no quede tiempo)
+        self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True)) or not cruce_auto.hay_pausa()     # cruce simple: sin pausa · Auto y Manual: con la pausa del 50 % de ⚙ Ajustes (3 s por defecto; Auto la omite si no queda tiempo)
         self.mix_pausa_timer.stop()
         self.mix_timer.start(interval_ms)
         self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🤖 {self._plan['nombre']}" if self._plan else ""))
@@ -115,6 +123,9 @@ class MezclaMixin:
 
         self.mix_steps_done += 1
         frac = self.mix_steps_done / self.mix_steps_total
+        pc, zpb = (self._plan.get("pc"), self._plan.get("zpb")) if self._plan else (getattr(self, "_pc_mix", None) or (None, None))
+        if pc is not None:                               # frena al acercarse al cruce de las dos líneas, sale lento y acelera hasta el 50 % (Auto y Manual)
+            frac = cruce_auto.pos_cruce(frac, pc, zpb)
         value = int(round(self.mix_from + (self.mix_to - self.mix_from) * frac))
 
         if not self._mix_pausa_hecha:
@@ -124,11 +135,32 @@ class MezclaMixin:
                 self.crossfader.setValue(50)
                 self._mix_pausa_hecha = True
                 self.mix_timer.stop()
-                self._set_status("⏸ Mezcla pausada 3 s en el 50%…")
-                self.mix_pausa_timer.start(3000)
+                self._set_status(f"⏸ Mezcla pausada {cruce_auto.PAUSA:g} s en el 50%…")
+                self.mix_pausa_timer.start(max(50, int(cruce_auto.PAUSA * 1000)))
                 return
 
         self.crossfader.setValue(value)
+
+    def _punto_cruce_manual(self):
+        """Modo Manual: (cruce, inicio de la rampa de B) en posición del crossfader (0..1) con los deslizadores actuales;
+        None si el cruce cae pasado el 50 % (ahí no se frena: la segunda mitad va pareja)."""
+        if not self.cruce_ab:
+            return None
+        if self.cruce_bandas:
+            rb = max(0.02, min(self.rampa_b, 1.0 - self.punto_b))
+            pc = cruce_auto.punto_cruce(self.punto_a, (None if self.fin_a >= 0.995 else self.fin_a), self.punto_b, rb, self.gamma_a)
+        else:
+            pc = cruce_auto.punto_cruce_simple(self.punto_a, self.punto_b)
+        return (pc, self.punto_b) if (pc is not None and 0.0 < pc <= 0.5) else None
+
+    def _abrir_ajustes_cruce(self):
+        """Botón ⚙: ventana de ajustes generales con todos los tiempos del cruce."""
+        from setup.ajustes_cruce import AjustesCruce
+        d = getattr(self, "_dlg_ajc", None)
+        if d is None:
+            d = self._dlg_ajc = AjustesCruce(self)
+        d.vista.update()
+        d.show(); d.raise_(); d.activateWindow()
 
     def _reanudar_mix(self):
         if self.mix_steps_done < self.mix_steps_total:

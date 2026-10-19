@@ -39,6 +39,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         except Exception:
             import traceback; traceback.print_exc()
         cfg = leer_config()
+        from setup.ajustes_cruce import cargar as _cargar_ajustes_cruce
+        _cargar_ajustes_cruce()                                   # tiempos del cruce guardados (⚙ Ajustes)
         self.punto_a = float(cfg.get("punto_a", DEF_PUNTO_A))
         self.punto_b = float(cfg.get("punto_b", DEF_PUNTO_B))
         self.cruce_ab = bool(cfg.get("cruce_ab", True))
@@ -311,6 +313,14 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_esquina.clicked.connect(self._a_la_esquina)
         self._f_dur.insertSpacing(self._f_dur.count() - 1, 6)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_esquina)   # al lado de la consola
+        self.btn_ajustes_gen = QPushButton("⚙")
+        self.btn_ajustes_gen.setFixedSize(76, 52)
+        self.btn_ajustes_gen.setStyleSheet("QPushButton { font-size:34px; padding:0px; }")
+        self.btn_ajustes_gen.setToolTip("Ajustes generales: todos los tiempos del cruce (pausa del medio, frenado del crossfader, duración y entrada de B del Auto)")
+        self.btn_ajustes_gen.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_ajustes_gen.clicked.connect(self._abrir_ajustes_cruce)
+        self._f_dur.insertSpacing(self._f_dur.count() - 1, 6)
+        self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_ajustes_gen)   # a la derecha de la flecha ↖
 
         barra_box = QGroupBox("⚓ Auto-enganche — progreso del tema sonando")
         barra_box.setFixedHeight(92)

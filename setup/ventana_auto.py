@@ -351,7 +351,7 @@ class AutomaticoMixin:
         if self.cruce_auto and self.cruce_ab and self.cruce_bandas and not self._cruce_simple():
             necesita = self._dur_auto_estimada(sonando, espera) + 1.0               # fundido + pausa del 50 % + 1 s de margen
         else:
-            necesita = self.spin_mix.value() + 4.0                                  # +3 s de pausa al 50 % +1 s de margen
+            necesita = self.spin_mix.value() + (cruce_auto.PAUSA if cruce_auto.hay_pausa() else 0.0) + 1.0      # + pausa al 50 % + 1 s de margen
         if resta <= max(float(self.auto_s), necesita):
             self._set_status(f"🔁 Mezcla automática hacia el Deck {espera.name}")
             self._disparar_mezcla_auto()

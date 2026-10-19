@@ -3,23 +3,57 @@
 Mantiene lo que funciona del cruce manual (el que viene entra al principio y se queda a pleno, el que sale baja de forma
 progresiva, el bajo se traspasa en la pausa de 3 s del medio) pero con valores propios para cada mezcla, según lo que midió
 del par de temas (dónde hay voz o melodía, dónde hay bombo y bajo, los compases y las frases):
-  · DURACIÓN: en compases, nunca menos de 8 s (más los 3 s de pausa al 50 %), la que menos choque de voces tenga y que quepa
+  · DURACIÓN: en compases, nunca menos de 12 s (más los 3 s de pausa al 50 %), la que menos choque de voces tenga y que quepa
     en lo que le queda al que sale,
   · ENTRADA de B: siempre al principio (5-20 % de la mezcla, en una línea de compás de B); cuanto más choque de voces haya,
     un poco más tarde y con una subida más larga,
   · SALIDA de A: baja progresivamente; cuanto más choque de voces, antes se achican sus medios y agudos,
   · BAJO: se traspasa en una línea de compás del que sale, de preferencia durante la pausa del medio y al inicio de una frase.
+  · RITMO: la primera mitad del fundido frena al acercarse al cruce de las dos líneas, sale lento y acelera hasta el 50 % (ver `pos_cruce`), ahí espera 3 s y sigue parejo.
 El resultado es un dict para `perfil_cruce_bandas`. Este módulo solo calcula (no toca la interfaz ni el audio)."""
 import math
 import numpy as np
-from setup.config import perfil_cruce_bandas
+from setup.config import perfil_cruce_bandas, perfil_cruce_ab
 
 UMBRAL_VOZ = 0.45        # desde este valor (0..1) se considera que hay voz/melodía
 PASO = 0.25              # resolución (s) con que se miran los temas
 PAUSA = 3.0              # pausa del crossfader al 50 % (s)
-MIN_DUR = 8.0            # el fundido dura al menos esto (sin contar la pausa)
-DUR_IDEAL = 12.0         # a igualdad de choque, la que más se acerque a esto
-MAX_DUR = 28.0
+MIN_DUR = 12.0           # el fundido dura al menos esto (sin contar la pausa)
+DUR_IDEAL = 15.0         # a igualdad de choque, la que más se acerque a esto
+# RITMO de la primera mitad del fundido: avanza parejo hasta que EMPIEZA la rampa de B (la línea violeta); desde ahí el crossfader va
+# frenando hasta moverse muy suavecito en el CRUCE de las dos líneas, sigue igual de lento al salir y después va acelerando de a poco
+# hasta llegar al 50 %. Ver `pos_cruce`.
+ZONA_K = 10.0             # cuánto se frena en el cruce (5 = a ~1/6 de la velocidad de afuera)
+ZONA_MIN = 0.25          # la frenada antes del cruce dura como mínimo esto (en posición del crossfader, 0..1)
+RB_MIN = 0.12            # la subida de B abarca como mínimo esto del recorrido del crossfader
+MAX_DUR = 18.0
+ENT_MIN = 0.01          # B empieza a entrar como muy pronto a este punto del tiempo del fundido (fracción)
+ENT_MAX = 0.04          # ... y como muy tarde a este (con más choque de voces entra más tarde)
+ZONA_ACEL = 0.10         # 1 = después del cruce acelera de a poco hasta el 50 % · menos = recupera la velocidad antes de la mitad
+DEFECTOS = {k: v for k, v in dict(PAUSA=PAUSA, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
+            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, RB_MIN=RB_MIN).items()}
+
+
+def aplicar(valores):
+    """Cambia los tiempos y el ritmo del cruce (los del engranaje ⚙). `valores` = dict nombre → número (los que falten no cambian)."""
+    g = globals()
+    for k, v in (valores or {}).items():
+        if k in DEFECTOS:
+            g[k] = float(v)
+    _MAPAS.clear()
+    if g["ENT_MAX"] < g["ENT_MIN"]:
+        g["ENT_MAX"] = g["ENT_MIN"]
+    if g["MAX_DUR"] < g["MIN_DUR"]:
+        g["MAX_DUR"] = g["MIN_DUR"]
+
+
+def valores():
+    g = globals()
+    return {k: g[k] for k in DEFECTOS}
+
+
+def hay_pausa():
+    return PAUSA >= 0.1
 COMPASES = (2, 3, 4, 5, 6, 8, 10, 12, 16)
 
 
@@ -45,21 +79,80 @@ def _compases_en(db, pos, rate, largo):
     return T[idx], idx
 
 
-def _t_de_T(T, D, pausa):
+_MAPAS = {}
+
+
+def _mapa(pc, pb=None):
+    """Tabla (fracción de tiempo → posición) de la primera mitad: frena desde pb (empieza la rampa de B) hasta el cruce pc y
+    acelera de nuevo hasta el 50 %."""
+    k = (round(float(pc), 3), None if pb is None else round(float(pb), 3))
+    m = _MAPAS.get(k)
+    if m is None:
+        pcr = k[0]
+        wa = max(ZONA_MIN, pcr - k[1]) if k[1] is not None else 0.10     # tramo de frenada antes del cruce
+        wd = max(wa, (0.5 - pcr) * ZONA_ACEL)                                        # después del cruce la aceleración se extiende hasta el 50 %
+        p = np.linspace(0.0, 0.5, 1001)
+        d = p - pcr
+        x = np.where(d < 0, d / wa, d / wd)
+        bump = np.where(np.abs(x) < 1.0, 0.5 * (1.0 + np.cos(np.pi * np.clip(x, -1.0, 1.0))), 0.0)
+        sl = 1.0 + ZONA_K * bump                                   # lentitud: tiempo que lleva cada tramo de posición
+        S = np.concatenate(([0.0], np.cumsum(0.5 * (sl[1:] + sl[:-1]) * np.diff(p))))
+        F = 0.5 * S / S[-1]
+        if len(_MAPAS) > 400:
+            _MAPAS.clear()
+        m = _MAPAS[k] = (F, p)
+    return m
+
+
+def pos_cruce(f, pc=None, pb=None):
+    """Posición del crossfader (0..1) cuando ya pasó la fracción f (0..1) de la duración del fundido (sin contar la pausa).
+    La primera mitad avanza parejo hasta que empieza a subir B (pb); desde ahí va frenando hasta moverse muy suavecito en el cruce
+    de las dos líneas (pc), sale igual de lento y después acelera de a poco hasta llegar al 50 %, caiga donde caiga el cruce.
+    La segunda mitad es pareja ('la rampa normal'). Sin pc todo es parejo."""
+    f = min(1.0, max(0.0, f))
+    if f > 0.5 or pc is None:
+        return f
+    F, p = _mapa(pc, pb)
+    return float(np.interp(f, F, p))
+
+
+def punto_cruce_simple(pa, pb):
+    """Lo mismo para el cruce simple (sin bandas): posición donde se cruzan las dos curvas, o None si no se cruzan."""
+    for i in range(0, 1001):
+        t = i / 1000.0
+        h, e = perfil_cruce_ab(t, pa, pb)
+        if e >= h and t > 0.0:
+            return t
+    return None
+
+
+def punto_cruce(pa, fa, pb, rb, gamma):
+    """Posición del crossfader donde se cruzan las dos líneas (sale y entra a igual nivel en medios/agudos)."""
+    ant = None
+    for i in range(0, 401):
+        t = pb + rb * i / 400.0
+        h, e, _l1, _l2 = perfil_cruce_bandas(t, pa, pb, 0.5, rampa=rb, fin_a=fa, gamma_a=gamma)
+        if e >= h:
+            return float(t)
+    return float(pb + rb)
+
+
+def _t_de_T(T, D, pausa, pc=None, pb=None):
     """Posición del crossfader (0..1) a los T segundos de empezar, contando la pausa de 3 s al 50 %."""
     if not pausa:
-        return min(1.0, max(0.0, T / D))
+        return pos_cruce(T / D, pc, pb)
     m = 0.5 * D
     if T <= m:
-        return max(0.0, T / D)
+        return pos_cruce(T / D, pc, pb)
     if T <= m + PAUSA:
         return 0.5
-    return min(1.0, (T - PAUSA) / D)
+    return pos_cruce((T - PAUSA) / D, pc, pb)
 
 
-def _forma(D, pausa, compas, S, E, vs, ve, be):
+def _forma1(D, pausa, compas, S, E, vs, ve, be, zona):
     """Diseña las rampas para un fundido de D segundos (+ la pausa). Devuelve el dict con los parámetros y su explicación."""
     total = D + (PAUSA if pausa else 0.0)
+    zpc, zpb = zona if zona else (None, None)
     n = min(len(vs), int(total / PASO) + 1)
     vs, ve, be = vs[:n], ve[:n], be[:n]
     fs, fe = vs >= UMBRAL_VOZ, ve >= UMBRAL_VOZ
@@ -69,9 +162,9 @@ def _forma(D, pausa, compas, S, E, vs, ve, be):
     choque_ini = float(juntos[:m_ini].mean())                              # y lo mismo en el tramo en que entra B
 
     # --- entrada de B: siempre al principio, en una línea de compás de B ---
-    ent = 0.05 + 0.15 * min(1.0, 2.5 * choque_ini)                          # 5 %..20 % de la mezcla
+    ent = ENT_MIN + (ENT_MAX - ENT_MIN) * min(1.0, 2.5 * choque_ini)       # (por defecto 5 %..20 % del tiempo de la mezcla)
     tb = ent * D
-    T_e, _ = _compases_en(E.get("db"), E["pos"], E["rate"], 0.22 * D)
+    T_e, _ = _compases_en(E.get("db"), E["pos"], E["rate"], max(0.22, ENT_MAX + 0.03) * D)
     cand = [float(t) for t in T_e if t >= 0.03 * D]                          # (si no hay línea tan al principio, entra sin ajustar)
     if cand:
         tb = min(cand, key=lambda t: abs(t - ent * D))
@@ -92,8 +185,10 @@ def _forma(D, pausa, compas, S, E, vs, ve, be):
             fin_s = i * PASO
             break
     if fin_s is not None:
-        fa = max(0.65, min(1.0, _t_de_T(fin_s + compas, D, pausa)))
-    pb, rb = tb / D, rb_t / D
+        fa = max(0.65, min(1.0, _t_de_T(fin_s + compas, D, pausa, zpc, zpb)))
+    pb = _t_de_T(tb, D, pausa, zpc, zpb)                                              # (la posición va a otro ritmo que el tiempo: se frena en el cruce)
+    rb = max(0.01, _t_de_T(tb + rb_t, D, pausa, zpc, zpb) - pb)
+    rb = min(max(rb, RB_MIN), max(0.01, 0.5 - pb))                          # el crossfader avanza de 1 % en 1 %: B sube en al menos ~8 pasos
 
     # --- bajo: una línea de compás del que sale, de preferencia en la pausa del medio y al inicio de una frase ---
     T_s, idx_s = _compases_en(S.get("db"), S["pos"], S["rate"], total)
@@ -126,10 +221,24 @@ def _forma(D, pausa, compas, S, E, vs, ve, be):
         ps = 0.5                                                           # se pide al empezar la pausa; cae en la 1.ª línea
     else:
         T = mejor[1] - 0.4 * compas                                        # se pide antes de la línea (el mezclador espera a la línea)
-        t = T / D if T <= p0 else (T - (PAUSA if pausa else 0.0)) / D
+        t = _t_de_T(T, D, pausa, zpc, zpb)
         ps = math.floor(max(0.05, min(0.95, t)) * 100.0) / 100.0           # el crossfader avanza de 1 % en 1 %
     return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
             "conflicto": conflicto, "choque_ini": choque_ini, "fin_voz_a": fin_s}
+
+
+def _forma(D, pausa, compas, S, E, vs, ve, be):
+    """Diseña el fundido y ajusta el frenado a la rampa de B y al cruce de las dos líneas (el cruce depende de la forma y la forma
+    depende del ritmo: se repite hasta que coinciden)."""
+    zona = None
+    for _ in range(6):
+        p = _forma1(D, pausa, compas, S, E, vs, ve, be, zona)
+        nuevo = (punto_cruce(p["pa"], p["fa"], p["pb"], p["rb"], p["gamma"]), p["pb"])
+        if zona is not None and abs(nuevo[0] - zona[0]) < 0.004 and abs(nuevo[1] - zona[1]) < 0.004:
+            break
+        zona = nuevo
+    p["pc"], p["zpb"] = float(zona[0]), float(zona[1])                     # con lo que se calculó todo (el mezclador usa lo mismo)
+    return p
 
 
 def _coste(p, D, pausa, vs, ve, compat_fac):
@@ -138,7 +247,7 @@ def _coste(p, D, pausa, vs, ve, compat_fac):
     clash = 0.0
     juntos = 0.0
     for i in range(len(vs)):
-        t = _t_de_T(i * PASO, D, pausa)
+        t = _t_de_T(i * PASO, D, pausa, p.get("pc"), p.get("zpb"))
         ha, hb, _la, _lb = perfil_cruce_bandas(t, p["pa"], p["pb"], p["ps"], rampa=p["rb"], fin_a=p["fa"], gamma_a=p["gamma"])
         juntos += ha * hb * PASO
         if vs[i] >= UMBRAL_VOZ and ve[i] >= UMBRAL_VOZ:
@@ -175,12 +284,12 @@ def disenar(sale, entra, compat=None, dif_tempo=0.0):
             continue
         if resta is not None and D + PAUSA > resta - 1.0:
             continue
-        cands.append((n, D, True))
+        cands.append((n, D, hay_pausa()))
     if not cands:                                             # le queda poco al que sale: lo más largo que entre
         if resta is None:
-            cands = [(0, MIN_DUR, True)]
+            cands = [(0, MIN_DUR, hay_pausa())]
         elif resta - 4.0 >= 5.0:
-            cands = [(0, min(MIN_DUR, resta - 4.0), True)]
+            cands = [(0, min(MIN_DUR, resta - 4.0), hay_pausa())]
         else:
             cands = [(0, max(1.5, resta - 1.5), False)]       # tan poco que ni se hace la pausa
     largo = max(c[1] + (PAUSA if c[2] else 0.0) for c in cands)
@@ -208,5 +317,5 @@ def disenar(sale, entra, compat=None, dif_tempo=0.0):
     if compat_fac:
         p["razon"] += " · tonalidad/tempo chocan"
     base = f"{n} compases · {D:.0f} s" if n else f"mezcla corta · {D:.0f} s"
-    p["nombre"] = base + (" + pausa 3 s" if pausa else "")
+    p["nombre"] = base + (f" + pausa {PAUSA:g} s" if pausa else "")
     return p
