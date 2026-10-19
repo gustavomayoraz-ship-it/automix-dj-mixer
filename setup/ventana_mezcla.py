@@ -76,30 +76,33 @@ class MezclaMixin:
 
         auto = bool(getattr(self, "_mix_auto", False)); self._mix_auto = False
         sale_d = self.deck_a if entra is self.deck_b else self.deck_b
-        duration_s = self._duracion_mezcla_para(sale_d, entra, auto)
-        if auto:
-            ks, ke = self._clave_de(sale_d), self._clave_de(entra)
-            nivel = compat_armonica(ks, ke)
-            marca = {2: "✔ compatibles", 1: "≈ vecinas", 0: "✖ chocan → mezcla corta"}.get(nivel, "")
-            print(f"[mezcla] {ks or '?'} → {ke or '?'} {marca} · {duration_s:.1f} s")
-        interval_ms = 50
-        self.mix_steps_total = int(duration_s * (1000.0 / interval_ms))
-        self.mix_steps_done = 0
-        self._mix_pausa_hecha = bool(simple)     # cruce simple: sin la pausa de 3 s al 50 % (con dos tempos distintos suena mal)
-        self.mix_pausa_timer.stop()
-
         self._plan = None
-        if self.recetas and self.cruce_ab and self.cruce_bandas and not simple:
+        if self.cruce_auto and self.cruce_ab and self.cruce_bandas and not simple:
             try:
-                self._plan = self._planificar_mezcla(sale_d, entra, duration_s)
+                self._plan = self._disenar_cruce_auto(sale_d, entra)      # modo Auto: el cruce se diseña para ESTE par de temas
             except Exception:
                 import traceback; traceback.print_exc()
                 self._plan = None
         if self._plan:
             pl = self._plan
-            print(f"[receta] {pl['nombre']} · sale desde {pl['pa']:.0%}, entra desde {pl['pb']:.0%}, bajo en {pl['ps']:.0%}")
+            self._ultimo_plan = pl
+            duration_s = float(pl["dur"])
+            log("cruce auto", f"{pl['nombre']} · {pl['razon']} · A baja de {pl['pa']:.0%} a {pl['fa']:.0%} · B entra desde {pl['pb']:.0%} "
+                              f"(sube en {pl['rb']:.0%}) · bajo en {pl['ps']:.0%}")
+        else:
+            duration_s = self._duracion_mezcla_para(sale_d, entra, auto)
+            if auto:
+                ks, ke = self._clave_de(sale_d), self._clave_de(entra)
+                nivel = compat_armonica(ks, ke)
+                marca = {2: "✔ compatibles", 1: "≈ vecinas", 0: "✖ chocan → mezcla corta"}.get(nivel, "")
+                print(f"[mezcla] {ks or '?'} → {ke or '?'} {marca} · {duration_s:.1f} s")
+        interval_ms = 50
+        self.mix_steps_total = int(duration_s * (1000.0 / interval_ms))
+        self.mix_steps_done = 0
+        self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True))     # cruce simple: sin pausa · Auto: con pausa de 3 s al 50 % (salvo que no quede tiempo)
+        self.mix_pausa_timer.stop()
         self.mix_timer.start(interval_ms)
-        self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🧠 {self._plan['nombre']}" if self._plan else ""))
+        self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🤖 {self._plan['nombre']}" if self._plan else ""))
 
     def _mix_step(self):
         if self.mix_steps_done >= self.mix_steps_total:
@@ -393,4 +396,4 @@ class MezclaMixin:
         elif getattr(self, "_mix_prog_clave", None) is not None:
             self._mix_prog_clave = None
             self.btn_mix.setStyleSheet(self._QSS_MIX_BASE)
-            self.btn_mix.setText(f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]")
+            self.btn_mix.setText(self._texto_btn_mix())

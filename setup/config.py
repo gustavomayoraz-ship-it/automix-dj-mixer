@@ -78,19 +78,20 @@ def caida_a(pa):
 
 
 
-def perfil_cruce_bandas(t, punto_a, punto_b, punto_s, rampa=0.12, fin_a=None):
+def perfil_cruce_bandas(t, punto_a, punto_b, punto_s, rampa=0.12, fin_a=None, gamma_a=1.0):
     """Cruce por bandas. Devuelve (sale_medios_agudos, entra_medios_agudos, sale_graves, entra_graves).
     · El entrante entra a nivel PLENO: en `punto_b` sube de 0 a 100 % en `rampa` de la mezcla (no se queda atenuado).
     · El que sale conserva sus medios/agudos hasta `punto_a` y ahí se va con un coseno.
     · El bajo es de uno solo a la vez: el del que sale se traspasa al del que entra en `punto_s` (el mezclador lo
-      hace justo en la línea del compás)."""
+      hace justo en la línea del compás).
+    · `gamma_a` solo lo usa el modo Auto (1 = el coseno de siempre; >1 el que sale se sostiene más y cae al final)."""
     pa = max(0.0, min(0.97, punto_a)); pb = max(0.0, min(0.97, punto_b)); ps = max(0.0, min(0.97, punto_s))
     if fin_a is None:
         fa = pa + caida_a(pa)
     else:
         fa = fin_a
     fa = max(pa + 0.03, min(1.0, fa))                     # hasta dónde se va el que sale
-    vs = 1.0 if t <= pa else math.cos(min(1.0, (t - pa) / (fa - pa)) * (math.pi / 2))
+    vs = 1.0 if t <= pa else max(0.0, math.cos(min(1.0, (t - pa) / (fa - pa)) * (math.pi / 2))) ** gamma_a
     r = max(0.02, min(rampa, 1.0 - pb))
     ve = 0.0 if t <= pb else math.sin(min(1.0, (t - pb) / r) * (math.pi / 2))
     lo_s = 1.0 if t < ps else 0.0

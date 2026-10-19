@@ -66,7 +66,8 @@ class SyncMixin:
             t = x if self._cf_dir == "AB" else 1.0 - x
             pl = self._plan_activo()
             if pl:
-                vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, pl["pa"], pl["pb"], pl["ps"], fin_a=pl["fa"])
+                vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, pl["pa"], pl["pb"], pl["ps"], rampa=pl["rb"], fin_a=pl["fa"],
+                                                             gamma_a=pl.get("gamma", 1.0))
             else:
                 vs_h, ve_h, vs_l, ve_l = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s)
             if self._cf_dir == "AB":
@@ -124,7 +125,7 @@ class SyncMixin:
 
     def _cruce_simple(self):
         """True si los dos temas tienen BPM muy distintos: no se empareja nada (ni tempo, ni compases, ni fase)
-        y la mezcla es un cruce simple de volumen, sin bandas ni recetas."""
+        y la mezcla es un cruce simple de volumen, sin bandas ni diseño automático."""
         return not self._bpm_compatibles()
 
     def _apply_shared_bpm(self, x):

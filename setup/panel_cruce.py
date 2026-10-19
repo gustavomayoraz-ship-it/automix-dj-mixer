@@ -14,10 +14,13 @@ class GraficoCruce(QWidget):
         super().__init__()
         self.punto_a = DEF_PUNTO_A; self.punto_b = DEF_PUNTO_B; self.avance = None
         self.punto_s = DEF_PUNTO_S; self.bandas = False; self.simple = False
+        self.rb = None; self.gamma = 1.0; self.etiqueta = None; self.vacio = None
         self.setMinimumHeight(62)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-    def actualizar(self, pa, pb, avance=None, ps=None, bandas=False, fa=None, simple=False):
+    def actualizar(self, pa, pb, avance=None, ps=None, bandas=False, fa=None, simple=False, rb=None, gamma=1.0,
+                   etiqueta=None, vacio=None):
+        self.rb, self.gamma, self.etiqueta, self.vacio = rb, gamma, etiqueta, vacio
         self.simple = bool(simple)
         self.punto_a, self.punto_b, self.avance = pa, pb, avance
         self.fin_a = fa
@@ -37,13 +40,18 @@ class GraficoCruce(QWidget):
         for f in (0.25, 0.5, 0.75):
             p.drawLine(QPointF(x0 + (x1 - x0) * f, yt), QPointF(x0 + (x1 - x0) * f, yb))
             p.drawLine(QPointF(x0, yt + (yb - yt) * f), QPointF(x1, yt + (yb - yt) * f))
+        if self.vacio:                                                     # Auto sin ningún cruce diseñado todavía
+            fs = QFont(self.font()); fs.setPointSizeF(max(7.0, 7.5 * AJ.escala * FUENTE_BOOST)); fs.setBold(True); p.setFont(fs)
+            p.setPen(QColor(TEMA["ambar"])); p.drawText(QRectF(x0, yt, x1 - x0, yb - yt), int(Qt.AlignmentFlag.AlignCenter), self.vacio)
+            p.end(); return
         pa, pb, la, lb = [], [], [], []
         for i in range(61):
             t = i / 60
             if self.simple:
                 vs, ve = math.cos(t * math.pi / 2.0), math.sin(t * math.pi / 2.0); ls, le = vs, ve
             elif self.bandas:
-                vs, ve, ls, le = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s, fin_a=getattr(self, "fin_a", None))
+                vs, ve, ls, le = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s, rampa=(self.rb or 0.12),
+                                                     fin_a=getattr(self, "fin_a", None), gamma_a=self.gamma)
             else:
                 vs, ve = perfil_cruce_ab(t, self.punto_a, self.punto_b); ls, le = vs, ve
             x = x0 + (x1 - x0) * t
@@ -66,9 +74,10 @@ class GraficoCruce(QWidget):
             xs = x0 + (x1 - x0) * max(0.0, min(1.0, self.punto_s))          # dónde se traspasa el bajo
             p.setPen(QPen(QColor(TEMA["verde"]), 1, Qt.PenStyle.DashLine)); p.drawLine(QPointF(xs, yt), QPointF(xs, yb))
         curva(pa, ca); curva(pb, cb)
-        if self.simple:
+        if self.simple or self.etiqueta:
             fs = QFont(self.font()); fs.setPointSizeF(max(7.0, 7.5 * AJ.escala * FUENTE_BOOST)); fs.setBold(True); p.setFont(fs)
-            p.setPen(QColor(TEMA["ambar"])); p.drawText(QRectF(x0, yt - 2, x1 - x0, 16), int(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter), "CRUCE SIMPLE · BPM distintos")
+            p.setPen(QColor(TEMA["ambar"])); p.drawText(QRectF(x0, yt - 2, x1 - x0, 16), int(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter),
+                                                         "CRUCE SIMPLE · BPM distintos" if self.simple else self.etiqueta)
         if self.avance is not None:
             xa = x0 + (x1 - x0) * max(0.0, min(1.0, self.avance))
             p.setPen(QPen(QColor(255, 255, 255, 60), 6)); p.drawLine(QPointF(xa, yt), QPointF(xa, yb))
@@ -107,16 +116,21 @@ class PanelCruce(QFrame):
         self.chk_bandas.setToolTip("Medios y agudos se cruzan con las curvas de arriba; el BAJO (bombo y bajo, <150 Hz) es de uno solo a la vez\ny se traspasa en la línea del compás, sin cortes ni empaste. Sin tilde: el cruce clásico por volumen.")
         self.chk_bandas.setChecked(ventana.cruce_bandas)
         lay.addWidget(self.chk_bandas)
-        self.chk_recetas = QCheckBox("🧠 Recetas automáticas")
-        self.chk_recetas.setToolTip("Antes de cada mezcla mira dónde hay voz/melodía en los dos temas y elige la receta:\n· Voz nueva sobre la base vieja\n· Base nueva, voz vieja\n· Entrada instrumental bajo la voz vieja\n· Traspaso instrumental\nSi no hay datos, usa los deslizadores de abajo. (Necesita 'Por bandas'.)")
-        self.chk_recetas.setChecked(ventana.recetas)
-        self.chk_recetas.toggled.connect(ventana.set_recetas)
-        lay.addWidget(self.chk_recetas)
         self.chk_comp = QCheckBox("⚖ Compensar nivel")
         self.chk_comp.setToolTip("Cuando suenan los dos temas a la vez, la suma suena más fuerte que cada uno.\nEsto baja un poco el total (hasta -5 dB, suave y automático) para que el volumen se mantenga parejo en la mezcla.")
         self.chk_comp.setChecked(ventana.comp_nivel)
         self.chk_comp.toggled.connect(ventana.set_comp)
         lay.addWidget(self.chk_comp)
+        self.btn_modo = QPushButton()
+        self.btn_modo.setCheckable(True)
+        self.btn_modo.setStyleSheet("QPushButton:checked { background:#1f8a4c; color:white; font-weight:bold; }")
+        self.btn_modo.setToolTip("✋ MANUAL: el cruce usa los deslizadores de abajo (A, B y Bajo), igual en todos los temas.\n"
+                                 "🤖 AUTO: el programa analiza cada par de temas y diseña SU cruce: la duración (en compases), cuándo entra el que viene,\n"
+                                 "cómo se va el que sale y en qué compás se traspasa el bajo. Los deslizadores y la duración no se usan.\n"
+                                 "(Necesita 'Forma de cruce' y 'Por bandas'; con BPM muy distintos hace el cruce simple.)")
+        self.btn_modo.setChecked(ventana.cruce_auto)
+        self.btn_modo.toggled.connect(self._modo_cambio)
+        lay.addWidget(self.btn_modo)
         self.sl_s, self.lv_s = fila("Bajo (cambia):", TEMA["verde"], ventana.punto_s, "Momento de la mezcla en que el bajo pasa del tema que sale al que entra (en la línea de compás más próxima). 0 % = el nuevo trae su bajo desde el principio · 95 % = el viejo mantiene el bajo casi hasta el final.")
         self.lbl_dur = QLabel(); self.lbl_dur.hide()
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
@@ -128,12 +142,28 @@ class PanelCruce(QFrame):
         self.chk.toggled.connect(self._cambio)
         self._timer = QTimer(self); self._timer.timeout.connect(self._refrescar); self._timer.start(50)
         self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
+        self._pintar_modo()
+
+    def _pintar_modo(self):
+        auto = self.btn_modo.isChecked()
+        self.btn_modo.setText("🤖 Cruce: AUTO" if auto else "✋ Cruce: MANUAL")
+        for w in (self.sl_a, self.sl_b):
+            w.setEnabled(not auto)
+        self.sl_s.setEnabled(self.chk_bandas.isChecked() and not auto)
+
+    def _modo_cambio(self, auto):
+        if auto:                                    # el Auto trabaja con la forma de cruce y por bandas
+            self.chk.setChecked(True)
+            self.chk_bandas.setChecked(True)
+        self._pintar_modo()
+        self.v.set_modo_auto(bool(auto))
+        self._refrescar()
 
     def _defecto(self):
         self.sl_a.setValue(int(round(DEF_PUNTO_A * 100))); self.sl_b.setValue(int(round(DEF_PUNTO_B * 100))); self.sl_s.setValue(int(round(DEF_PUNTO_S * 100)))
         self.chk.setChecked(True)               # forma de cruce A/B activada
         self.chk_bandas.setChecked(True)        # por bandas
-        self.chk_recetas.setChecked(False)      # recetas automáticas apagadas
+        self.btn_modo.setChecked(False)         # cruce manual
         self.chk_comp.setChecked(True)          # compensar nivel
         try:                                    # multibanda, tono, volumen, zoom y marca del auto-enganche
             self.v.aplicar_valores_defecto()
@@ -142,7 +172,7 @@ class PanelCruce(QFrame):
 
     def _cambio(self, *_):
         self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
-        self.sl_s.setEnabled(self.chk_bandas.isChecked())
+        self.sl_s.setEnabled(self.chk_bandas.isChecked() and not self.btn_modo.isChecked())
         self.v.set_forma_cruce(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, self.chk.isChecked(),
                                self.sl_s.value() / 100.0, self.chk_bandas.isChecked())
         self._refrescar()
@@ -155,8 +185,16 @@ class PanelCruce(QFrame):
         pl = self.v._plan_activo() if hasattr(self.v, "mix_timer") else None
         if self.v._cruce_simple():
             self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, True)
-        elif pl:                                           # durante una mezcla con receta, el gráfico muestra la receta
-            self.graf.actualizar(pl["pa"], pl["pb"], t, pl["ps"], True, pl["fa"])
+        elif pl:                                           # durante una mezcla Auto, el gráfico muestra el cruce diseñado
+            self.graf.actualizar(pl["pa"], pl["pb"], t, pl["ps"], True, pl["fa"], rb=pl["rb"], gamma=pl.get("gamma", 1.0),
+                                 etiqueta=f"🤖 AUTO · {pl['nombre']}")
+        elif self.btn_modo.isChecked():                    # Auto sin mezcla en curso: el último cruce diseñado (o el aviso)
+            ul = getattr(self.v, "_ultimo_plan", None)
+            if ul:
+                self.graf.actualizar(ul["pa"], ul["pb"], None, ul["ps"], True, ul["fa"], rb=ul["rb"], gamma=ul.get("gamma", 1.0),
+                                     etiqueta=f"🤖 AUTO · último: {ul['nombre']}")
+            else:
+                self.graf.actualizar(0.0, 0.0, None, None, False, None, vacio="🤖 AUTO · cada cruce se diseña solo")
         else:
             self.graf.actualizar(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, t,
                                  self.sl_s.value() / 100.0, self.chk_bandas.isChecked() and self.chk.isChecked())

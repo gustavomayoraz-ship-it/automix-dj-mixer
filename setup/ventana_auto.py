@@ -1,8 +1,10 @@
 """AutoMix — mezcla automática: plan, siguiente tema, duración y disparo."""
 import math
 import os
+import time
 import numpy as np
 from PySide6.QtCore import QTimer
+from setup import cruce_auto
 from setup.analisis import compat_armonica
 from setup.base import _log_diferido, log
 from setup.config import guardar_config, leer_config
@@ -20,11 +22,12 @@ class AutomaticoMixin:
 
     def _duracion_mezcla_cambio(self, v):
         log("config", f"duración de la mezcla: {v} s")
-        self.btn_mix.setText(f"🎬 Mezclar ({v}s) [F2]")
+        self.btn_mix.setText(self._texto_btn_mix())
         guardar_config(mezcla_s=int(v))
 
-    # ================= RECETAS DE MEZCLA (según dónde hay voz/melodía) =================
-    UMBRAL_VOZ = 0.45
+    # ================= CRUCE AUTO (lo diseña el programa para cada par de temas) =================
+    def _texto_btn_mix(self):
+        return "🎬 Mezclar (auto) [F2]" if self.cruce_auto else f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]"
 
     def _plan_activo(self):
         pl = getattr(self, "_plan", None)
@@ -32,69 +35,51 @@ class AutomaticoMixin:
             return pl
         return None
 
-    @staticmethod
-    def _x_de_tiempo(T, dur):
-        """Fracción de la mezcla (posición del crossfader) a los T segundos de empezar, contando la pausa de 3 s al 50 %."""
-        mitad = dur / 2.0
-        if T <= mitad:
-            return T / dur
-        if T <= mitad + 3.0:
-            return 0.5
-        return min(1.0, (T - 3.0) / dur)
+    def set_modo_auto(self, v):
+        log("config", f"cruce: {'AUTO (lo diseña el programa)' if v else 'MANUAL (los deslizadores)'}")
+        self.cruce_auto = bool(v)
+        guardar_config(cruce_auto=self.cruce_auto)
+        if hasattr(self, "spin_mix"):
+            self.spin_mix.setEnabled(not self.cruce_auto)
+        if hasattr(self, "btn_mix") and not (self.mix_timer.isActive() or self.mix_pausa_timer.isActive()):
+            self.btn_mix.setText(self._texto_btn_mix())
 
-    def _actividad(self, deck, dur_total):
-        """Lista (cada 0,5 s reales desde ahora) de True/False: ¿hay voz/melodía en los medios de ese deck?"""
-        an = deck.analysis or {}
-        voz = an.get("voz") or []
-        if not voz:
-            return None
-        dt = float(an.get("voz_dt", 0.5))
-        pos = deck.position_virtual_seconds(); rate = max(1e-6, deck.rate_eff)
-        out = []
-        for i in range(int(dur_total / 0.5) + 1):
-            k = int((pos + i * 0.5 * rate) / dt)
-            out.append(bool(k < len(voz) and voz[k] >= self.UMBRAL_VOZ))
-        return out
+    def _datos_cruce(self, d, es_sale):
+        """Lo que el diseñador del cruce necesita de un deck: curvas de voz y bajo, compases, velocidad y cuánto le queda."""
+        an = d.analysis or {}
+        pos = d.position_virtual_seconds(); rate = max(1e-6, d.rate_eff)
+        dd = {"voz": an.get("voz") or [], "bajo": an.get("bajo") or [], "dt": float(an.get("voz_dt", 0.5) or 0.5),
+              "pos": pos, "rate": rate, "bpm": float(an.get("bpm", 0) or 0), "db": self._db_de(d)}
+        if d.audio is not None:
+            fin = self._fin_audible(d) if es_sale else len(d.audio) / max(1, d.sr)
+            dd["resta"] = max(0.0, (fin - pos) / rate)
+        return dd
 
-    def _planificar_mezcla(self, sale, entra, dur):
-        """Elige la receta de esta mezcla mirando dónde hay voz/melodía en el tema que sale y en el que entra.
-        Devuelve dict(pa, pb, ps, fa, nombre) o None (se usan los deslizadores del panel)."""
-        W = dur + 3.0
-        act_s, act_e = self._actividad(sale, W), self._actividad(entra, W)
-        if act_s is None or act_e is None:
-            return None
-        n = len(act_s)
-        def primer_silencio(a):                         # primer instante con 2 s sin actividad (0 = ya está sin actividad)
-            for i in range(n):
-                if not any(a[i:i + 4]):
-                    return i * 0.5
-            return None
-        def primera_actividad(a):
-            for i in range(n):
-                if a[i]:
-                    return i * 0.5
-            return None
-        fin_s = primer_silencio(act_s)                  # None = el que sale tiene voz durante toda la mezcla
-        ini_e = primera_actividad(act_e)                # None = el que entra es instrumental durante toda la mezcla
-        sale_activo = fin_s != 0.0
-        entra_pronto = ini_e is not None and ini_e <= 0.3 * dur
-        x = lambda T: self._x_de_tiempo(T, dur)
-        pa, pb, ps, fa = self.punto_a, self.punto_b, self.punto_s, 1.0
-        if not sale_activo:
-            if ini_e is not None:
-                nombre = "Voz nueva sobre la base vieja"
-                pb, pa, ps = 0.0, 0.75, 0.8             # entra todo ya; el bajo viejo sigue casi hasta el final
-            else:
-                nombre = "Traspaso instrumental"
-        elif entra_pronto:
-            nombre = "Base nueva, voz vieja"
-            ps = 0.15                                    # el bajo/bombo nuevo entra enseguida (en el compás)…
-            pb = min(0.8, x(fin_s)) if fin_s is not None else 0.6   # …y su voz espera a que termine la del que sale
-            pa, fa = max(0.2, pb - 0.2), min(1.0, pb + 0.1)
-        else:
-            nombre = "Entrada instrumental bajo la voz vieja"
-            pb, ps, pa = 0.0, 0.3, 0.65                  # el nuevo entra completo; la voz vieja sigue un rato
-        return {"pa": float(pa), "pb": float(pb), "ps": float(ps), "fa": float(fa), "nombre": nombre}
+    def _disenar_cruce_auto(self, sale, entra):
+        """Diseña el cruce de esta mezcla mirando los dos temas (ver setup/cruce_auto.py). Devuelve el dict del plan."""
+        S, E = self._datos_cruce(sale, True), self._datos_cruce(entra, False)
+        compat = compat_armonica(self._clave_de(sale), self._clave_de(entra))
+        try:
+            bs, be = S["bpm"] * S["rate"], E["bpm"] * E["rate"]
+            dif = abs(be / bs - 1.0) if bs > 0 and be > 0 else 0.0
+        except Exception:
+            dif = 0.0
+        return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif)
+
+    def _dur_auto_estimada(self, sale, entra):
+        """Tiempo total que tendría ahora la mezcla Auto, con la pausa del medio (sirve para saber con cuánta anticipación
+        arrancarla). Se recalcula como mucho una vez por segundo."""
+        ahora = time.monotonic()
+        c = getattr(self, "_dur_auto_cache", None)
+        if c is not None and c[0] == (sale.path, entra.path) and ahora - c[1] < 1.0:
+            return c[2]
+        try:
+            pl = self._disenar_cruce_auto(sale, entra)
+            dur = float(pl["dur"]) + (cruce_auto.PAUSA if pl.get("pausa", True) else 0.0)
+        except Exception:
+            dur = 16.0
+        self._dur_auto_cache = ((sale.path, entra.path), ahora, dur)
+        return dur
 
     def set_comp(self, v):
         log("config", f"compensar nivel: {'sí' if v else 'no'}")
@@ -102,11 +87,6 @@ class AutomaticoMixin:
         guardar_config(comp_nivel=self.comp_nivel)
         if hasattr(self, "mixer"):
             self.mixer.comp_activo = self.comp_nivel
-
-    def set_recetas(self, v):
-        log("config", f"recetas automáticas: {'sí' if v else 'no'}")
-        self.recetas = bool(v)
-        guardar_config(recetas=self.recetas)
 
     def set_forma_cruce(self, pa, pb, activo, ps=None, bandas=None):
         _log_diferido("forma", "config", f"forma de cruce: A {pa:.0%} · B {pb:.0%} · activa {'sí' if activo else 'no'}"
@@ -359,6 +339,10 @@ class AutomaticoMixin:
         if espera.audio is None or not espera.analysis:
             return
         resta = (len(sonando.audio) - sonando.cursor - sonando.loop_desfase) / (sonando.sr * max(1e-6, sonando.rate_eff))
-        if resta <= max(float(self.auto_s), self.spin_mix.value() + 4.0):   # +3 s de pausa al 50 % +1 s de margen
+        if self.cruce_auto and self.cruce_ab and self.cruce_bandas and not self._cruce_simple():
+            necesita = self._dur_auto_estimada(sonando, espera) + 1.0               # fundido + pausa del 50 % + 1 s de margen
+        else:
+            necesita = self.spin_mix.value() + 4.0                                  # +3 s de pausa al 50 % +1 s de margen
+        if resta <= max(float(self.auto_s), necesita):
             self._set_status(f"🔁 Mezcla automática hacia el Deck {espera.name}")
             self._disparar_mezcla_auto()

@@ -44,9 +44,10 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.cruce_ab = bool(cfg.get("cruce_ab", True))
         self.punto_s = float(cfg.get("punto_s", DEF_PUNTO_S))
         self.cruce_bandas = bool(cfg.get("cruce_bandas", True))
-        self.recetas = bool(cfg.get("recetas", False))
+        self.cruce_auto = bool(cfg.get("cruce_auto", False))      # False = cruce manual (los deslizadores) · True = Auto (lo diseña el programa)
         self.comp_nivel = bool(cfg.get("comp_nivel", True))
-        self._plan = None                 # receta de la mezcla en curso: dict(pa, pb, ps, fa, nombre) o None
+        self._plan = None                 # diseño del cruce Auto de la mezcla en curso (dict) o None
+        self._ultimo_plan = None          # el último que se diseñó (el gráfico lo muestra mientras no hay mezcla)
         self._cf_dir = "AB"
         self.carga_auto = True
         self.auto_s = int(cfg.get("auto_s", 30))
@@ -221,7 +222,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.spin_mix.setSuffix(" s")
         self.spin_mix.setFixedHeight(30)
         self.spin_mix.setValue(self._cargar_duracion_mezcla())
-        self.btn_mix.setText(f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]")
+        self.btn_mix.setText(self._texto_btn_mix())
+        self.spin_mix.setEnabled(not self.cruce_auto)
+        self.spin_mix.setToolTip("Duración del cruce manual. En modo Auto la decide el programa en cada mezcla.")
         self.spin_mix.valueChanged.connect(self._duracion_mezcla_cambio)
         c.addStretch()
 
