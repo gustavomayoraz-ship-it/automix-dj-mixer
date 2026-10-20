@@ -1,7 +1,7 @@
 """AutoMix — panel de multibanda y ecualizador inteligente (controles y ajustes)."""
 import sys
 from PySide6.QtWidgets import QCheckBox, QDialog, QFrame, QGraphicsDropShadowEffect, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtCore import Qt
 from setup.base import _log_diferido
 from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MAN_COMP, DEF_MAN_RATIO, DEF_MAN_UMBRAL, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, guardar_config, leer_config
@@ -121,11 +121,12 @@ class MultibandaMixin:
         self.marco_mezcla.setStyleSheet(qss_marco("QGroupBox#marcoMezcla", TEMA["ambar"]))
         col_mix = QVBoxLayout(self.marco_mezcla); col_mix.setContentsMargins(10, 6, 10, 8); col_mix.setSpacing(6)
         col_mix.addWidget(self._crear_loop())     # 🔁 Loop + largo (¼ ½ 1 2)
-        self.spin_mix.setFixedWidth(58)           # corto: solo el número
-        fila_d = QHBoxLayout(); fila_d.setContentsMargins(0, 0, 0, 0); fila_d.setSpacing(8)
-        self.lbl_dur.setFixedHeight(28)
-        fila_d.addWidget(self.lbl_dur); fila_d.addWidget(self.spin_mix); fila_d.addStretch(1)
-        col_mix.addLayout(fila_d)
+        # la duración va ahora en la barra de arriba (junto a las teclas globales): número grande y bien legible
+        _f = QFont(self.spin_mix.font()); _f.setPointSizeF(14.0); _f.setBold(True); self.spin_mix.setFont(_f)
+        self.spin_mix.setFixedSize(104, 36)
+        self.spin_mix.setStyleSheet("QSpinBox { font-size: 19px; font-weight: bold; color: #ffffff; padding: 0px 22px 0px 8px; }")
+        _fl = QFont(self.lbl_dur.font()); _fl.setPointSizeF(11.0); _fl.setBold(True); self.lbl_dur.setFont(_fl)
+        self.lbl_dur.setFixedHeight(36)
         self.btn_mix.setMinimumWidth(0)
         self.btn_mix.setMinimumHeight(38); self.btn_mix.setMaximumHeight(16777215)
         self.btn_mix.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -145,6 +146,9 @@ class MultibandaMixin:
         self._f2_global_cambio(self.chk_f2g.isChecked(), guardar=False)
         f_dur = self._fila_duracion
         f_dur.addStretch(1)
+        f_dur.addWidget(self.lbl_dur)             # Duración (s): en la misma línea que las teclas globales
+        f_dur.addWidget(self.spin_mix)
+        f_dur.addSpacing(14)
         f_dur.addWidget(self.chk_f2g)
         f_dur.addSpacing(10)
         f_dur.addSpacing(0)                       # (marcador: los botones 🖥 ↖ ⚙ se insertan antes de este último elemento)

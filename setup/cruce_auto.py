@@ -30,8 +30,12 @@ MAX_DUR = 18.0
 ENT_MIN = 0.01          # B empieza a entrar como muy pronto a este punto del tiempo del fundido (fracción)
 ENT_MAX = 0.04          # ... y como muy tarde a este (con más choque de voces entra más tarde)
 ZONA_ACEL = 0.10         # 1 = después del cruce acelera de a poco hasta el 50 % · menos = recupera la velocidad antes de la mitad
+ESTRATEGIA = 2.0         # 2 = como tu cruce MANUAL (tu forma, tu duración, la pausa y el frenado de ⚙), con la duración en compases enteros · 1 = Pro (mezcla larga en frase, sin pausa ni frenado) · 0 = la clásica
+MAN_COMPASES = 8.0       # estrategia 2: largo del fundido en compases (así dura lo mismo, en compases, a cualquier tempo) · 0 = usar los segundos del deslizador «Duración»
+PRO_COMPASES = 16.0      # largo de la mezcla Pro en compases (4, 8, 16 o 32: se toma el más cercano que quepa en lo que le queda al que sale)
+ZONA_V = 1.5             # tope: fuera del frenado el crossfader nunca va a más de esta velocidad (× la velocidad media de la primera mitad)
 DEFECTOS = {k: v for k, v in dict(PAUSA=PAUSA, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
-            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, RB_MIN=RB_MIN).items()}
+            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES).items()}
 
 
 def aplicar(valores):
@@ -85,7 +89,7 @@ _MAPAS = {}
 def _mapa(pc, pb=None):
     """Tabla (fracción de tiempo → posición) de la primera mitad: frena desde pb (empieza la rampa de B) hasta el cruce pc y
     acelera de nuevo hasta el 50 %."""
-    k = (round(float(pc), 3), None if pb is None else round(float(pb), 3))
+    k = (round(float(pc), 3), None if pb is None else round(float(pb), 3), round(float(ZONA_K), 3), round(float(ZONA_V), 3), round(float(ZONA_MIN), 3), round(float(ZONA_ACEL), 3))
     m = _MAPAS.get(k)
     if m is None:
         pcr = k[0]
@@ -95,7 +99,12 @@ def _mapa(pc, pb=None):
         d = p - pcr
         x = np.where(d < 0, d / wa, d / wd)
         bump = np.where(np.abs(x) < 1.0, 0.5 * (1.0 + np.cos(np.pi * np.clip(x, -1.0, 1.0))), 0.0)
-        sl = 1.0 + ZONA_K * bump                                   # lentitud: tiempo que lleva cada tramo de posición
+        # El frenado no puede ser tan profundo que lo de afuera (el arranque hasta el frenado) pase de golpe: la velocidad de afuera
+        # (= lentitud media de la primera mitad) se topa en ZONA_V veces la media. Así el arranque lleva un tiempo proporcional a su
+        # recorrido y los deslizadores de entrada/salida (B entra, A sale…) se notan, en vez de quedar 'pasados' en 0,2 s.
+        mb = max(1e-6, float(np.trapezoid(bump, p)) / 0.5)
+        kef = min(ZONA_K, max(0.0, (ZONA_V - 1.0) / mb))
+        sl = 1.0 + kef * bump                                      # lentitud: tiempo que lleva cada tramo de posición
         S = np.concatenate(([0.0], np.cumsum(0.5 * (sl[1:] + sl[:-1]) * np.diff(p))))
         F = 0.5 * S / S[-1]
         if len(_MAPAS) > 400:
@@ -267,13 +276,121 @@ def _razon(p, sale_con_voz, entra_con_voz):
     return "sin choque de voces: cruce parejo"
 
 
-def disenar(sale, entra, compat=None, dif_tempo=0.0):
+def _n_pro(compas, resta):
+    """Compases de la mezcla Pro: el pedido (4, 8, 16 o 32) y, si no cabe en lo que le queda al que sale, el siguiente más corto."""
+    pref = min((4, 8, 16, 32), key=lambda c: abs(math.log2(c) - math.log2(max(2.0, PRO_COMPASES))))
+    for n in (32, 16, 8, 4, 2):
+        if n > pref:
+            continue
+        if resta is None or n * compas + 1.0 <= resta - 1.0:
+            return n, n * compas
+    if resta is None or resta - 1.5 < 2.0:
+        return 0, max(1.5, (resta or 4.0) - 1.5)
+    return 0, resta - 1.5
+
+
+def disenar_pro(sale, entra, compat=None, dif_tempo=0.0, forma=None):
+    """ESTRATEGIA PRO — la mezcla larga "en frase" de los DJs, sin pausa ni frenado (el crossfader avanza parejo):
+      · dura 8, 16 o 32 compases (por defecto 16 = una frase doble),
+      · B entra SIN graves (el bajo es de uno solo) y va subiendo de a poco en la primera mitad,
+      · a la mitad, en una línea de compás de A (de preferencia inicio de frase), el bajo pasa de A a B de un solo movimiento,
+      · recién entonces A se va (medios y agudos), hasta quedar en cero justo al final.
+    La FORMA (cuándo entra B, cuánto tarda en subir, cuándo se va A, dónde se cambia el bajo) es la de los deslizadores de
+    "Forma de cruce A/B" (`forma`), así lo que se afina a mano vale también en el Auto; sin `forma` se usa un diseño propio
+    (si los dos tienen voz casi todo el cruce, B sube más tarde y A empieza a irse antes, para que las voces no se pisen)."""
+    bpm = float(sale.get("bpm", 0) or 0) * float(sale.get("rate", 1.0) or 1.0)
+    compas = 240.0 / bpm if bpm > 20 else 2.0
+    n, D = _n_pro(compas, sale.get("resta"))
+    vs, _ = _serie(sale.get("voz"), sale.get("dt", 0.5), sale["pos"], sale["rate"], D)
+    ve, _ = _serie(entra.get("voz"), entra.get("dt", 0.5), entra["pos"], entra["rate"], D)
+    k = max(1, int(D / PASO) + 1)
+    conflicto = float(((vs[:k] >= UMBRAL_VOZ) & (ve[:k] >= UMBRAL_VOZ)).mean())
+    if forma:
+        pb, rb, pa = float(forma["pb"]), float(forma["rb"]), float(forma["pa"])
+        fa, gamma = float(forma.get("fa") or 1.0), float(forma.get("gamma") or 1.0)
+        pb = max(0.0, min(0.9, pb)); rb = max(0.02, min(rb, 1.0 - pb))
+        pa = max(0.0, min(0.9, pa)); fa = max(pa + 0.05, min(1.0, fa))
+        ps_obj = max(0.3, min(0.7, float(forma.get("ps", 0.5))))
+    else:
+        ps_obj = 0.5
+        if conflicto > 0.5:
+            pb, rb, pa, fa, gamma = 0.25, 0.25, 0.35, 0.92, 1.5
+        elif conflicto > 0.15:
+            pb, rb, pa, fa, gamma = 0.18, 0.32, 0.42, 0.96, 1.2
+        else:
+            pb, rb, pa, fa, gamma = 0.12, 0.38, 0.50, 1.0, 1.0
+    # cambio de bajo: la línea de compás de A más cercana a la mitad (con preferencia por el inicio de frase)
+    T_s, idx_s = _compases_en(sale.get("db"), sale["pos"], sale["rate"], D)
+    mejor = None
+    for T, i in zip(T_s, idx_s):
+        T = float(T)
+        if not (ps_obj - 0.15) * D <= T <= (ps_obj + 0.15) * D:
+            continue
+        c = abs(T - ps_obj * D) / D - (0.04 if i % 8 == 0 else 0.0)
+        if mejor is None or c < mejor[0]:
+            mejor = (c, T)
+    if mejor is None:
+        ps = ps_obj
+    else:
+        t = (mejor[1] - 0.4 * compas) / D                             # se pide antes de la línea (el mezclador espera a la línea)
+        ps = math.floor(max(0.05, min(0.95, t)) * 100.0) / 100.0      # el crossfader avanza de 1 % en 1 %
+    razon = ("con la forma de tus deslizadores (Forma de cruce A/B)" if forma else
+             "los dos tienen voz casi todo el cruce: B entra más tarde y A se va antes" if conflicto > 0.5 else
+             "las voces se pisan en parte: A baja un poco antes" if conflicto > 0.15 else "sin choque de voces: blend largo parejo")
+    if compat == 0 or dif_tempo > 0.08:
+        razon += " · tonalidad/tempo chocan (para mezclas más cortas bajá 'Compases de la mezcla Pro' en ⚙)"
+    return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
+            "conflicto": conflicto, "choque_ini": 0.0, "fin_voz_a": None, "pc": None, "zpb": None,
+            "dur": float(D), "pausa": False, "n": int(n), "estrategia": "pro",
+            "nombre": (f"Pro · {n} compases · {D:.0f} s" if n else f"Pro · mezcla corta · {D:.0f} s") + " · sin pausa",
+            "razon": razon}
+
+
+def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
+    """ESTRATEGIA 2 — el Auto mezcla EXACTAMENTE como el cruce manual que ya te gusta: la forma de los deslizadores de
+    "Forma de cruce A/B", la duración del deslizador «Duración», la pausa del 50 % y el frenado en el cruce de los ajustes de ⚙.
+    La duración va en compases enteros: MAN_COMPASES (por defecto 8; a 96 BPM ≈ 20 s, a 136 BPM ≈ 14 s) o, con 0, los segundos de «Duración»
+    redondeados a compases. El Auto la acorta si al
+    tema que sale no le queda tiempo. El traspaso del bajo lo hace el mezclador en la línea de compás, igual que en el manual."""
+    bpm = float(sale.get("bpm", 0) or 0) * float(sale.get("rate", 1.0) or 1.0)
+    compas = 240.0 / bpm if bpm > 20 else 2.0
+    resta = sale.get("resta")
+    dur = float(forma.get("dur") or 10.0)
+    pausa = hay_pausa()
+    n = max(2, int(round(MAN_COMPASES))) if MAN_COMPASES >= 1 else max(2, int(round(dur / compas)))
+    D = n * compas
+    pa_s = PAUSA if pausa else 0.0
+    while resta is not None and n > 2 and D + pa_s > resta - 1.0:
+        n -= 1; D = n * compas
+    if resta is not None and D + pa_s > resta - 1.0:               # no entra ni con 2 compases: lo que quede, sin pausa
+        n, D, pausa = 0, max(1.5, resta - 1.5), False
+    pb = max(0.0, min(0.9, float(forma["pb"]))); rb = max(0.02, min(float(forma["rb"]), 1.0 - pb))
+    pa = max(0.0, min(0.9, float(forma["pa"]))); fa = max(pa + 0.05, min(1.0, float(forma.get("fa") or 1.0)))
+    gamma = float(forma.get("gamma") or 1.0)
+    ps = max(0.0, min(0.97, float(forma.get("ps", 0.5))))
+    pc, zpb = forma.get("pc"), forma.get("zpb")
+    razon = "como tu cruce manual (tu forma, tu duración, la pausa y el frenado)"
+    if compat == 0 or dif_tempo > 0.08:
+        razon += " · tonalidad/tempo chocan"
+    return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
+            "conflicto": 0.0, "choque_ini": 0.0, "fin_voz_a": None,
+            "pc": None if pc is None else float(pc), "zpb": None if zpb is None else float(zpb),
+            "dur": float(D), "pausa": bool(pausa), "n": int(n), "estrategia": "manual",
+            "nombre": (f"Como el manual · {n} compases · {D:.0f} s" if n else f"Como el manual · corta · {D:.0f} s") + (f" + pausa {PAUSA:g} s" if pausa else ""),
+            "razon": razon}
+
+
+def disenar(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     """Diseña el cruce de este par de temas.
     sale / entra: dict(voz, bajo, dt, pos, rate, bpm, db, resta)  · pos en s del tema, rate = velocidad real,
                   db = líneas de compás (s del tema), resta = segundos de música que le quedan.
     compat: 0/1/2 (armonía) o None · dif_tempo: diferencia relativa de BPM.
     Devuelve dict(dur, pausa, n, pa, fa, pb, rb, ps, gamma, nombre, razon).
     `dur` es el fundido (lo que recorre el crossfader); si `pausa` es True se le suman 3 s al 50 %."""
+    if ESTRATEGIA >= 1.5 and forma and forma.get("dur"):
+        return disenar_manual(sale, entra, compat, dif_tempo, forma)
+    if ESTRATEGIA >= 0.5:
+        return disenar_pro(sale, entra, compat, dif_tempo, forma)
     bpm = float(sale.get("bpm", 0) or 0) * float(sale.get("rate", 1.0) or 1.0)
     compas = 240.0 / bpm if bpm > 20 else 2.0
     resta = sale.get("resta")

@@ -13,6 +13,14 @@ CLAVE = "ajustes_cruce"
 
 # (clave en cruce_auto, texto, mínimo, máximo, divisor, formato, ayuda)
 GRUPOS = [
+    ("🎛 Estrategia del cruce Auto", [
+        ("ESTRATEGIA", "Estrategia (0 clásica · 1 Pro · 2 como mi manual)", 0, 2, 1, "{:.0f}",
+         "2 = el Auto mezcla igual que tu cruce MANUAL: tu forma de A/B, tu duración (el deslizador «Duración»), la pausa del 50 % y el\nfrenado de abajo; solo redondea la duración a compases enteros.\n1 = Pro: mezcla larga en frase (B entra sin graves, el bajo cambia a la mitad, A se va después), sin pausa ni frenado.\n0 = la clásica (la diseña el programa para cada par)."),
+        ("MAN_COMPASES", "Compases del Auto «como mi manual» (0 = segundos)", 0, 32, 1, "{:.0f}",
+         "Largo del fundido de la estrategia 2 en compases: dura lo mismo en compases a cualquier tempo (a 96 BPM, 8 compases son unos 20 s;\na 136 BPM, unos 14 s). 0 = usar los segundos del deslizador «Duración» (redondeados a compases)."),
+        ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
+         "Largo de la mezcla Pro en compases. Se usa el más cercano de 4, 8, 16 o 32 que quepa en lo que le queda al tema que sale.\n16 compases a 96 BPM son unos 40 s · 8 compases, unos 20 s."),
+    ]),
     ("⏸ Pausa del medio", [
         ("PAUSA", "Pausa al 50 %", 0, 80, 10, "{:.1f} s",
          "Cuánto espera el crossfader en el 50 % (los dos temas suenan a la par) antes de seguir. 0 = sin pausa.\nVale en Auto y en Manual."),
@@ -22,6 +30,8 @@ GRUPOS = [
          "Cuánto frena el crossfader en el punto donde se cruzan las líneas de A y B.\n0 = no frena (avanza parejo) · 5 = va a ~1/6 de la velocidad de afuera · 10 = casi se queda quieto.\nVale en Auto y en Manual."),
         ("ZONA_MIN", "Frenada antes del cruce (mín.)", 1, 25, 100, "{:.0%}",
          "La frenada empieza donde empieza a subir B y llega hasta el cruce. Si ese tramo es corto, se alarga hasta este mínimo\n(% del recorrido del crossfader). Más = frena desde más lejos, más suave."),
+        ("ZONA_V", "Tope de velocidad del arranque", 10, 80, 10, "×{:.1f}",
+         "Máxima velocidad del crossfader fuera del frenado, respecto de la velocidad media de la primera mitad.\n1 = parejo, sin frenado · 2 = el arranque lleva un tiempo proporcional a su recorrido · 8 = el arranque pasa casi de golpe y el cruce queda casi quieto.\nVale en Auto y en Manual."),
         ("ZONA_ACEL", "Aceleración hasta la mitad", 10, 100, 100, "{:.0%}",
          "Después del cruce el crossfader sigue lento y va acelerando de a poco.\n100 % = recién recupera la velocidad al llegar al 50 % · menos = la recupera antes de la mitad."),
     ]),
@@ -45,14 +55,17 @@ GRUPOS = [
 def cargar():
     """Al arrancar: lee lo guardado y lo aplica."""
     try:
-        cruce_auto.aplicar(leer_config().get(CLAVE, {}))
+        d = dict(leer_config().get(CLAVE, {}))
+        if int(d.get("_ver", 1)) < 2:                      # la estrategia por defecto cambió (ahora 2 = como el manual): se ignora la guardada antes
+            d.pop("ESTRATEGIA", None)
+        cruce_auto.aplicar(d)
     except Exception:
         import traceback; traceback.print_exc()
 
 
 def guardar():
     try:
-        guardar_config(**{CLAVE: cruce_auto.valores()})
+        guardar_config(**{CLAVE: dict(cruce_auto.valores(), _ver=2)})
     except Exception:
         pass
 
@@ -81,14 +94,19 @@ class VistaRitmo(QWidget):
     def _caso(self):
         v = self.v
         pl = getattr(v, "_ultimo_plan", None)
-        if v.cruce_auto and pl and pl.get("pc") is not None:
+        if v.cruce_auto and pl and pl.get("pc") is not None and (cruce_auto.ESTRATEGIA < 0.5 or pl.get("estrategia") == "manual"):
             return float(pl["dur"]), bool(pl.get("pausa", True)), pl["pc"], pl.get("zpb"), f"último cruce Auto ({pl['dur']:.0f} s)"
         try:
             zona = v._punto_cruce_manual()
         except Exception:
             zona = None
-        if zona and not v.cruce_auto:
+        if zona and (not v.cruce_auto or cruce_auto.ESTRATEGIA >= 1.5):
             return float(v.spin_mix.value()), cruce_auto.hay_pausa(), zona[0], zona[1], f"tu cruce manual ({v.spin_mix.value()} s)"
+        if 0.5 <= cruce_auto.ESTRATEGIA < 1.5:         # estrategia Pro: parejo y sin pausa (el ejemplo, a 96 BPM = 2,5 s por compás)
+            if v.cruce_auto and pl and pl.get("estrategia") == "pro":
+                return float(pl["dur"]), False, None, None, f"último cruce Pro ({pl['n']} compases · {pl['dur']:.0f} s)"
+            Dp = cruce_auto._n_pro(2.5, None)[1]
+            return Dp, False, None, None, f"Pro ({Dp:.0f} s · ejemplo a 96 BPM)"
         D = max(cruce_auto.MIN_DUR, min(cruce_auto.MAX_DUR, cruce_auto.DUR_IDEAL))
         return D, cruce_auto.hay_pausa(), 0.22, 0.17, f"ejemplo ({D:.0f} s)"
 
@@ -159,7 +177,7 @@ class VistaRitmo(QWidget):
             self._caso_c = self._caso(); self._caso_t = ahora
         D, pausa, pc, pb, titulo = self._caso_c
         clave = (w, h, dpr, round(D, 3), bool(pausa), pc, pb, titulo, round(cruce_auto.PAUSA, 3),
-                 tuple(round(float(getattr(cruce_auto, k, 0)), 4) for k in ("ZONA_K", "ZONA_MIN", "ZONA_ACEL")))
+                 tuple(round(float(getattr(cruce_auto, k, 0)), 4) for k in ("ZONA_K", "ZONA_MIN", "ZONA_ACEL", "ZONA_V", "ESTRATEGIA", "PRO_COMPASES", "MAN_COMPASES")))
         if clave != self._clave:
             self._pix = self._fondo(w, h, dpr, D, pausa, pc, pb, titulo); self._clave = clave
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -229,6 +247,11 @@ class AjustesCruce(QDialog):
     def _cambio(self, k, x, div, fmt, val):
         val.setText(fmt.format(x / div))
         cruce_auto.aplicar({k: x / div})
+        if k in ("ESTRATEGIA", "MAN_COMPASES"):
+            try:
+                self.v.spin_mix.setEnabled(self.v._spin_mix_activo()); self.v.btn_mix.setText(self.v._texto_btn_mix())
+            except Exception:
+                pass
         guardar()
         self.vista.update()
 

@@ -26,8 +26,14 @@ class AutomaticoMixin:
         guardar_config(mezcla_s=int(v))
 
     # ================= CRUCE AUTO (lo diseña el programa para cada par de temas) =================
+    def _spin_mix_activo(self):
+        """La duración se edita en Manual y también en el Auto 'como el manual' (estrategia 2), que usa esa misma duración."""
+        return (not self.cruce_auto) or (cruce_auto.ESTRATEGIA >= 1.5 and cruce_auto.MAN_COMPASES < 1)
+
     def _texto_btn_mix(self):
-        return "🎬 Mezclar (auto) [F2]" if self.cruce_auto else f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]"
+        if self.cruce_auto and cruce_auto.ESTRATEGIA >= 1.5 and cruce_auto.MAN_COMPASES >= 1:
+            return f"🎬 Mezclar (auto · {cruce_auto.MAN_COMPASES:.0f} comp) [F2]"
+        return "🎬 Mezclar (auto) [F2]" if not self._spin_mix_activo() else f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]"
 
     def _plan_activo(self):
         pl = getattr(self, "_plan", None)
@@ -40,7 +46,7 @@ class AutomaticoMixin:
         self.cruce_auto = bool(v)
         guardar_config(cruce_auto=self.cruce_auto)
         if hasattr(self, "spin_mix"):
-            self.spin_mix.setEnabled(not self.cruce_auto)
+            self.spin_mix.setEnabled(self._spin_mix_activo())
         if hasattr(self, "btn_mix") and not (self.mix_timer.isActive() or self.mix_pausa_timer.isActive()):
             self.btn_mix.setText(self._texto_btn_mix())
 
@@ -64,7 +70,16 @@ class AutomaticoMixin:
             dif = abs(be / bs - 1.0) if bs > 0 and be > 0 else 0.0
         except Exception:
             dif = 0.0
-        return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif)
+        forma = None
+        try:                                              # la forma de los deslizadores "Forma de cruce A/B" (lo que se afina a mano) también vale en el Auto Pro
+            forma = {"pa": self.punto_a, "pb": self.punto_b, "rb": self.rampa_b, "ps": self.punto_s, "gamma": self.gamma_a,
+                     "fa": (None if self.fin_a >= 0.995 else self.fin_a), "dur": float(self.spin_mix.value())}
+            zona = self._punto_cruce_manual()             # dónde se cruzan las dos líneas (para frenar ahí), igual que el manual
+            if zona:
+                forma["pc"], forma["zpb"] = zona
+        except Exception:
+            forma = None
+        return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif, forma=forma)
 
     def _dur_auto_estimada(self, sale, entra):
         """Tiempo total que tendría ahora la mezcla Auto, con la pausa del medio (sirve para saber con cuánta anticipación

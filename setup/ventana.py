@@ -225,7 +225,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.spin_mix.setFixedHeight(30)
         self.spin_mix.setValue(self._cargar_duracion_mezcla())
         self.btn_mix.setText(self._texto_btn_mix())
-        self.spin_mix.setEnabled(not self.cruce_auto)
+        self.spin_mix.setEnabled(self._spin_mix_activo())
         self.spin_mix.setToolTip("Duración del cruce manual. En modo Auto la decide el programa en cada mezcla.")
         self.spin_mix.valueChanged.connect(self._duracion_mezcla_cambio)
         c.addStretch()

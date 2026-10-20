@@ -3,6 +3,7 @@ import math
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
+from setup import cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST
 from setup.config import DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_ab, perfil_cruce_bandas
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
@@ -220,6 +221,19 @@ class PanelCruce(QFrame):
                                self.sl_rb.value() / 100.0, self.sl_fa.value() / 100.0, self.sl_g.value() / 10.0)
         self._refrescar()
 
+    def _plan_previo(self):
+        """El cruce que el Auto diseñaría AHORA para los dos temas cargados (None si falta alguno o su análisis)."""
+        v = self.v
+        try:
+            f = v.crossfader.value()
+            sale = v.deck_a if f <= 50 else v.deck_b
+            entra = v.deck_b if sale is v.deck_a else v.deck_a
+            if sale.audio is not None and entra.audio is not None and sale.analysis and entra.analysis:
+                return v._disenar_cruce_auto(sale, entra)
+        except Exception:
+            pass
+        return None
+
     def _refrescar(self):
         if not hasattr(self.v, "spin_mix"):
             return
@@ -230,12 +244,19 @@ class PanelCruce(QFrame):
             self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, True)
         elif pl:                                           # durante una mezcla Auto, el gráfico muestra el cruce diseñado
             self.graf.actualizar(pl["pa"], pl["pb"], t, pl["ps"], True, pl["fa"], rb=pl["rb"], gamma=pl.get("gamma", 1.0),
-                                 etiqueta=f"🤖 AUTO · {pl['n']} comp · {pl['dur']:.0f} s + pausa")
-        elif self.btn_modo.isChecked():                    # Auto sin mezcla en curso: el último cruce diseñado (o el aviso)
-            ul = getattr(self.v, "_ultimo_plan", None)
+                                 etiqueta=f"🤖 AUTO · {pl['n']} comp · {pl['dur']:.0f} s" + (" + pausa" if pl.get("pausa", True) else " · sin pausa"))
+        elif self.btn_modo.isChecked():                    # Auto sin mezcla en curso: el cruce que se diseñaría ahora para los dos temas cargados
+            prev = self._plan_previo()
+            ul = prev or getattr(self.v, "_ultimo_plan", None)
             if ul:
                 self.graf.actualizar(ul["pa"], ul["pb"], None, ul["ps"], True, ul["fa"], rb=ul["rb"], gamma=ul.get("gamma", 1.0),
-                                     etiqueta=f"🤖 último: {ul['n']} comp · {ul['dur']:.0f} s")
+                                     etiqueta=(f"🤖 {'próximo' if prev else 'último'}: {ul['n']} comp · {ul['dur']:.0f} s"
+                                               + ("" if ul.get("pausa", True) else " · sin pausa")))
+            elif cruce_auto.ESTRATEGIA >= 0.5:             # todavía sin temas / sin mezclas: se dibuja la forma que usa el Auto Pro (la de los deslizadores)
+                fa = self.sl_fa.value() / 100.0
+                self.graf.actualizar(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, None, self.sl_s.value() / 100.0, True,
+                                     None if fa >= 0.995 else fa, rb=self.sl_rb.value() / 100.0, gamma=self.sl_g.value() / 10.0,
+                                     etiqueta=f"🤖 AUTO Pro · tu forma · {cruce_auto.PRO_COMPASES:.0f} comp")
             else:
                 self.graf.actualizar(0.0, 0.0, None, None, False, None, vacio="🤖 AUTO · cada cruce se diseña solo")
         else:
