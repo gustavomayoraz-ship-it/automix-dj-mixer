@@ -6,7 +6,7 @@ import threading
 import time
 import numpy as np
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout
+from PySide6.QtWidgets import QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
 from PySide6.QtCore import QPoint, QTimer, Qt
 from setup.ajustes import NIVEL_V2, SUPPORTED, TARGET_LUFS_RMS, fmt_time
 from setup.analisis import (_guardar_cache, _limpiar_grilla_cache, _mantener_vivo, aplicar_uno, desfase_rejilla_auto,
@@ -67,6 +67,8 @@ class Deck(QFrame):
         lay.setContentsMargins(8, 6, 8, 6)
         lay.setSpacing(3)
 
+        top = QHBoxLayout(); top.setSpacing(8); top.setContentsMargins(0, 0, 0, 0)     # arriba: título / BPM a la izquierda y el ▶ GRANDE a la derecha
+        col_t = QVBoxLayout(); col_t.setSpacing(3); col_t.setContentsMargins(0, 0, 0, 0)
         r1 = QHBoxLayout()
         self.lbl_title = QLabel(f"DECK {name}")
         self.lbl_title.setStyleSheet(f"color:{color}; font-size:16px; font-weight:bold;")
@@ -77,7 +79,7 @@ class Deck(QFrame):
         self.lbl_track.clicked.connect(lambda: self.on_ubicar_cb(self.path) if self.on_ubicar_cb else None)
         self.lbl_track.setStyleSheet(f"color:{TEMA['texto']}; font-size:11px;")
         r1.addWidget(self.lbl_track, stretch=1)
-        lay.addLayout(r1)
+        col_t.addLayout(r1)
 
         r2 = QHBoxLayout()
         self.lbl_bpm = QLabel("BPM: --")
@@ -87,7 +89,10 @@ class Deck(QFrame):
         self.lbl_time = QLabel("00:00 / 00:00")
         self.lbl_time.setStyleSheet("color:#ffffff; font-size:12px; font-weight:bold;")
         r2.addWidget(self.lbl_time, stretch=1)
-        lay.addLayout(r2)
+        col_t.addLayout(r2)
+        col_t.addStretch(1)
+        top.addLayout(col_t, 1)
+        lay.addLayout(top)
 
         r3 = QHBoxLayout()
         r3.setSpacing(4)
@@ -96,10 +101,14 @@ class Deck(QFrame):
         self.btn_pause = QPushButton("⏸")
         self.btn_stop = QPushButton("⏹")
         self.btn_reset = QPushButton("⟲")
-        for b in (self.btn_load, self.btn_play, self.btn_pause,
-                  self.btn_stop, self.btn_reset):
-            b.setFixedHeight(38); b.setFixedWidth(58); r3.addWidget(b)
+        for b in (self.btn_load, self.btn_pause, self.btn_stop, self.btn_reset):       # (el ▶ pasó arriba, grande: los demás se reparten su lugar)
+            b.setFixedHeight(38); b.setFixedWidth(72); r3.addWidget(b)
             fb = b.font(); fb.setPointSizeF(17.0); fb.setBold(True); b.setFont(fb)
+        self.btn_play.setFixedHeight(62); self.btn_play.setMinimumWidth(150)
+        self.btn_play.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        fp = self.btn_play.font(); fp.setPointSizeF(34.0); fp.setBold(True); self.btn_play.setFont(fp)
+        self.btn_play.setToolTip("Reproducir")
+        top.addWidget(self.btn_play, 2)
         self.btn_play.setProperty("rol", "play"); self.btn_pause.setProperty("rol", "pausa"); self.btn_stop.setProperty("rol", "stop")
         self.btn_load.clicked.connect(self.load_dialog)
         self.btn_play.clicked.connect(self.play)
