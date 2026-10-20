@@ -42,6 +42,8 @@ class BibliotecaMixin:
 
     def _auto_analizar(self):
         """Los temas nuevos de la lista se analizan solos (se ven con ⏳ hasta que terminan)."""
+        if self.biblioteca._cargando_lib:                    # la lista todavía se está cargando al abrir: cuando termine, avisa sola
+            return
         if self._analisis_en_curso():
             return
         faltan = self._pendientes()

@@ -398,11 +398,13 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
 
         self.manito_on = True
 
-        self.biblioteca.cargar()
+        self.biblioteca.primera_tanda.connect(self._restaurar_decks)                 # los decks guardados vuelven apenas hay temas en la lista
+        self.biblioteca.carga_progreso.connect(lambda h, n: self.lbl_lib.setText(f"📁 Cargando biblioteca… {h}/{n}") if h < n else None)
+        self.biblioteca.carga_terminada.connect(self._post_carga_biblioteca)
+        self.biblioteca.cargar()                                                     # (en tandas: la ventana se abre enseguida)
         if leer_config().get("lib_agrupada", False):
             self.btn_agrupar.setChecked(True); self.biblioteca.set_agrupado(True)
         self._update_cf()
-        QTimer.singleShot(0, self._restaurar_decks)
 
         self._esc_actual = 1.0
         self._ratio_lista = 470.0 / 1560.0
@@ -481,6 +483,14 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         d.pos_manual = True                          # lo ubicó el usuario: si es el que entra, la mezcla arranca desde ahí
         self._set_status(f"✋ Deck {deck} movido a {fmt_time(anchor)}")
 
+    def _post_carga_biblioteca(self):
+        """La lista ya está completa y con BPM / tono: si está en vista por carpetas se ordena como siempre."""
+        try:
+            if self.biblioteca.agrupado:
+                self._ordenar_lista()
+        except Exception:
+            import traceback; traceback.print_exc()
+
     def closeEvent(self, event):
         log("programa", "cerrando AutoMix")
         try: self.f2_global.quitar()
@@ -493,7 +503,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         except Exception:
             pass
         try:
-            guardar_config(decks_cargados={"A": self.deck_a.path, "B": self.deck_b.path})     # al abrir vuelven a quedar cargados
+            if not (self.biblioteca._cargando_lib and not (self.deck_a.path or self.deck_b.path)):     # (si se cierra a mitad de la carga, no se pisan los decks guardados)
+                guardar_config(decks_cargados={"A": self.deck_a.path, "B": self.deck_b.path})     # al abrir vuelven a quedar cargados
         except Exception:
             pass
         try: CONSOLA.ocultar()
@@ -516,10 +527,10 @@ def _mensajes_qt(tipo, ctx, msg):
 
 
 
-def main(tiempos=None):
+def main(tiempos=None, splash=None):
     t_ini = time.perf_counter()
     sys.setswitchinterval(0.0005)        # el hilo del audio no espera 5 ms a que la pantalla suelte Python (menos trancadas)
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     try:
         from PySide6.QtCore import qInstallMessageHandler, __version__ as _qv
         qInstallMessageHandler(_mensajes_qt)             # los avisos internos de Qt también van a la consola
@@ -533,9 +544,17 @@ def main(tiempos=None):
     except Exception:
         pass
     t_v0 = time.perf_counter()
+    try:
+        from setup.arranque import mensaje
+        mensaje(splash, "Armando la ventana…")
+    except Exception:
+        mensaje = None
     w = AutoMix()
     t_v1 = time.perf_counter()
     w.show()
+    if splash is not None:
+        try: splash.finish(w)
+        except Exception: pass
     t_v2 = time.perf_counter()
     if tiempos:
         t0, t1, t2 = tiempos

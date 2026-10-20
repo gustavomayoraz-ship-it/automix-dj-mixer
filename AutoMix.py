@@ -31,5 +31,12 @@ _T1 = time.perf_counter()
 
 
 if __name__ == "__main__":
+    _splash = None
+    try:
+        from setup.arranque import abrir_splash, mensaje
+        _splash = abrir_splash()                        # ventana de arranque YA (antes de cargar librosa, scipy, etc.)
+        mensaje(_splash, "Cargando módulos…")
+    except Exception:
+        _splash = None
     from setup.ventana import main
-    main((_T0, _T1, time.perf_counter()))
+    main((_T0, _T1, time.perf_counter()), _splash)

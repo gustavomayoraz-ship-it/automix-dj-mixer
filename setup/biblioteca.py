@@ -3,10 +3,13 @@ from pathlib import Path
 import json
 import os
 import re
+import stat
+import threading
+import time
 from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget, QListWidgetItem, QStyledItemDelegate
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyleOptionViewItem
-from PySide6.QtCore import QMimeData, QUrl, Qt, Signal
+from PySide6.QtCore import QMimeData, QTimer, QUrl, Qt, Signal
 from setup.ajustes import FUENTE_BOOST, SUPPORTED
 from setup.analisis import compat_armonica
 from setup.base import CACHE_DIR, log
@@ -85,6 +88,10 @@ class Biblioteca(QListWidget):
     aviso = Signal(str)        # mensaje para la barra de estado (p. ej. duplicados omitidos)
     cambio = Signal()
     nuevos = Signal()          # se agregaron temas: hay que analizarlos
+    carga_progreso = Signal(int, int)     # al abrir: (temas revisados, total) mientras la lista se va llenando
+    primera_tanda = Signal()              # ya hay temas en la lista (los decks guardados pueden volver a cargarse)
+    carga_terminada = Signal()            # lista completa y con BPM / tonos leídos
+    _precarga_lista = Signal()
     ROL_NOMBRE = Qt.ItemDataRole.UserRole + 1
     ROL_CAB = Qt.ItemDataRole.UserRole + 2         # True en los encabezados de carpeta
     ROL_CARPETA_ORIG = Qt.ItemDataRole.UserRole + 4  # ruta ORIGINAL de la carpeta (con mayúsculas reales): para arrastrar afuera
@@ -113,6 +120,9 @@ class Biblioteca(QListWidget):
         self._memo_dur = {}        # ruta -> duración en segundos (del análisis)
         self._memo_voz = {}        # ruta -> True si el análisis ya trae las curvas de voz/bajo
         self._skips = {}           # ruta (normalizada) -> True si está SALTEADO (no se carga solo al mezclar)
+        self._carga = None         # carga inicial en tandas (None = no hay ninguna en curso)
+        self._cargando_lib = False # True mientras se carga la lista guardada: no se guarda (la lista está incompleta)
+        self._precarga_lista.connect(self._fin_precarga)
         self._cargando = False     # guarda: bloquea reacciones a itemChanged mientras se cargan/ordenan cosas
         self.agrupado = False      # vista por carpetas: un encabezado por carpeta y debajo sus temas
         self._plegadas = set()     # carpetas cerradas (con clic en el encabezado)
@@ -146,7 +156,7 @@ class Biblioteca(QListWidget):
         return os.path.normcase(os.path.abspath(p))
 
     @staticmethod
-    def _firma(p):
+    def _firma(p, tam=None):
         """Identidad de un tema para detectar duplicados aunque estén en otra carpeta o se llamen "Tema (1)" / "Tema - copia":
         (nombre normalizado, tamaño del archivo). Dos archivos con el mismo nombre y el mismo tamaño son el mismo tema."""
         base = os.path.splitext(os.path.basename(p))[0].lower()
@@ -155,10 +165,11 @@ class Biblioteca(QListWidget):
             nombre = re.sub(r"[\s_]*[\(\[]\s*\d+\s*[\)\]]\s*$", "", nombre)
             nombre = re.sub(r"[\s_\-]+[\(\[]?\s*(copia|copy|copie|kopie)\s*\d*\s*[\)\]]?\s*$", "", nombre)
         nombre = re.sub(r"[\s_]+", " ", nombre).strip() or base
-        try:
-            tam = os.path.getsize(p)
-        except OSError:
-            tam = -1
+        if tam is None:
+            try:
+                tam = os.path.getsize(p)
+            except OSError:
+                tam = -1
         return (nombre, tam)
 
     # ---------- vista por carpetas ----------
@@ -436,6 +447,17 @@ class Biblioteca(QListWidget):
     def _firmas_actuales(self):
         return {self._firma(r) for r in self.todas()}
 
+    def _crear_item(self, p, clave):
+        nombre = os.path.splitext(os.path.basename(p))[0]
+        it = QListWidgetItem(nombre)
+        it.setData(self.ROL_NOMBRE, nombre)
+        it.setData(Qt.ItemDataRole.UserRole, p)
+        it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        # ← casilla TILDADA solo si venía guardado como salteado; si no, arranca DESTILDADA
+        it.setCheckState(Qt.CheckState.Checked if self._skips.get(clave) else Qt.CheckState.Unchecked)
+        it.setToolTip(p + "\n\nCasilla tildada = SALTEAR: la carga automática no lo pone en el reproductor.")
+        return it
+
     def agregar(self, rutas):
         n = 0
         dup = 0
@@ -455,15 +477,7 @@ class Biblioteca(QListWidget):
                     continue
                 firmas.add(f)
                 self._rutas.add(clave)
-                nombre = os.path.splitext(os.path.basename(p))[0]
-                it = QListWidgetItem(nombre)
-                it.setData(self.ROL_NOMBRE, nombre)
-                it.setData(Qt.ItemDataRole.UserRole, p)
-                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                # ← casilla TILDADA solo si venía guardado como salteado; si no, arranca DESTILDADA
-                it.setCheckState(Qt.CheckState.Checked if self._skips.get(clave) else Qt.CheckState.Unchecked)
-                it.setToolTip(p + "\n\nCasilla tildada = SALTEAR: la carga automática no lo pone en el reproductor.")
-                self.addItem(it)
+                self.addItem(self._crear_item(p, clave))
                 n += 1
         finally:
             self._cargando = prev
@@ -492,6 +506,7 @@ class Biblioteca(QListWidget):
 
     def limpiar(self):
         log("biblioteca", "lista vaciada")
+        self._carga = None; self._cargando_lib = False          # (si todavía se estaba cargando al abrir, se cancela)
         self.clear(); self._rutas.clear(); self._cola.clear(); self.cambio.emit()
 
     def pintar(self, ruta_a, ruta_b):
@@ -593,6 +608,8 @@ class Biblioteca(QListWidget):
         self.cambio.emit()
 
     def guardar(self):
+        if self._cargando_lib:                      # la lista todavía se está cargando: guardar ahora la dejaría incompleta
+            return
         try:
             BIBLIOTECA_JSON.parent.mkdir(exist_ok=True)
             datos = [{"ruta": r, "skip": self.esta_salteado(r)} for r in self.todas()]
@@ -601,20 +618,89 @@ class Biblioteca(QListWidget):
             print("No se pudo guardar la biblioteca:", e)
 
     def cargar(self):
+        """Lee la lista guardada y la carga EN TANDAS: la ventana se abre enseguida y la lista se va llenando
+        (con miles de temas, revisar cada archivo y leer su análisis tardaba varios segundos con la ventana congelada)."""
         try:
             datos = json.loads(BIBLIOTECA_JSON.read_text(encoding="utf-8"))
-            rutas = []
-            self._skips = {}
-            for d in datos:
-                if isinstance(d, str):                       # formato viejo: solo la ruta
-                    rutas.append(d)
-                elif isinstance(d, dict) and d.get("ruta"):
-                    rutas.append(d["ruta"])
-                    if d.get("skip"):
-                        self._skips[os.path.normcase(os.path.abspath(d["ruta"]))] = True
-            self.agregar([r for r in rutas if os.path.isfile(r)])
+        except Exception:
+            return
+        rutas = []
+        self._skips = {}
+        for d in datos:
+            if isinstance(d, str):                       # formato viejo: solo la ruta
+                rutas.append(d)
+            elif isinstance(d, dict) and d.get("ruta"):
+                rutas.append(d["ruta"])
+                if d.get("skip"):
+                    self._skips[os.path.normcase(os.path.abspath(d["ruta"]))] = True
+        if not rutas:
+            return
+        self._carga = {"rutas": rutas, "i": 0, "n": 0, "dup": 0, "firmas": self._firmas_actuales(), "primera": False}
+        self._cargando_lib = True
+        QTimer.singleShot(0, self._cargar_tanda)
+
+    def _cargar_tanda(self):
+        c = self._carga
+        if c is None:
+            return
+        t0 = time.perf_counter()
+        prev = self._cargando
+        self._cargando = True
+        self.setUpdatesEnabled(False)
+        try:
+            rutas = c["rutas"]
+            while c["i"] < len(rutas) and time.perf_counter() - t0 < 0.03:        # ~30 ms por tanda: la ventana sigue respondiendo
+                p = rutas[c["i"]]; c["i"] += 1
+                if not p.lower().endswith(SUPPORTED):
+                    continue
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                if not stat.S_ISREG(st.st_mode):
+                    continue
+                clave = os.path.normcase(os.path.abspath(p))
+                if clave in self._rutas:
+                    continue
+                f = self._firma(p, st.st_size)
+                if f in c["firmas"]:
+                    c["dup"] += 1
+                    log("biblioteca", f"duplicado omitido: {os.path.basename(p)}")
+                    continue
+                c["firmas"].add(f)
+                self._rutas.add(clave)
+                self.addItem(self._crear_item(p, clave))
+                c["n"] += 1
+        finally:
+            self._cargando = prev
+            self.setUpdatesEnabled(True)
+        self.carga_progreso.emit(c["i"], len(c["rutas"]))
+        if c["n"] and not c["primera"]:
+            c["primera"] = True
+            self.primera_tanda.emit()
+        if c["i"] < len(c["rutas"]):
+            QTimer.singleShot(0, self._cargar_tanda)
+            return
+        self._carga = None                                   # todos los temas ya están en la lista
+        log("biblioteca", f"+{c['n']} tema(s) agregado(s) · total {self.count()}")
+        threading.Thread(target=self._precargar_info, args=(self.todas(),), daemon=True).start()    # BPM / tono de cada tema, sin trabar la ventana
+
+    def _precargar_info(self, rutas):
+        try:
+            for r in rutas:
+                self.info(r)
         except Exception:
             pass
+        self._precarga_lista.emit()                          # (vuelve al hilo de la ventana)
+
+    def _fin_precarga(self):
+        self._cargando_lib = False
+        if self.agrupado:                                    # los títulos de carpeta suman la duración de sus temas: recién ahora, con todo leído
+            self._quitar_cab(); self._poner_cab()
+        self._refrescar_textos()                             # ya con BPM y tono de cada tema
+        self.cambio.emit()
+        self.nuevos.emit()                                   # arranca el análisis de los que faltan
+        self.carga_terminada.emit()
 
     # ---------- drag & drop ----------
     def mimeData(self, items):
