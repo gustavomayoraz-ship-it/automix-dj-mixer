@@ -1,7 +1,7 @@
 """AutoMix — auriculares: botones 🎧 por deck, elección del dispositivo y volumen."""
 import time
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout
 from setup.base import log
 from setup.config import guardar_config, leer_config
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
@@ -28,31 +28,26 @@ class AuricularesMixin:
     def _crear_auriculares(self):
         aur = self.mixer.aur
         cfg = leer_config()
-        self.marco_aur = QFrame()                       # cuadro con degradé violeta, como los decks
+        self.marco_aur = QGroupBox("🎧 Auriculares")    # tarjeta violeta con título, igual que las demás
         self.marco_aur.setObjectName("marcoAur")
-        self.marco_aur.setStyleSheet(qss_marco("QFrame#marcoAur", TEMA["violeta"], titulo=False))
-        col = QVBoxLayout(self.marco_aur); col.setContentsMargins(8, 4, 8, 4); col.setSpacing(3)
-        fila1 = QHBoxLayout(); fila1.setContentsMargins(0, 0, 0, 0); fila1.setSpacing(4)
-        fila1.addWidget(QLabel("<b>🎧 Auriculares</b>"))
+        self.marco_aur.setStyleSheet(qss_marco("QGroupBox#marcoAur", TEMA["violeta"]))
+        col = QVBoxLayout(self.marco_aur); col.setContentsMargins(10, 6, 10, 8); col.setSpacing(6)
         self.btn_cue = {}                              # (los botones A/B de escucha en vivo se sacaron: se usa el play de abajo)
-        fila1.addStretch(1)
         self.btn_aur_ref = QPushButton("🔄")
-        self.btn_aur_ref.setFixedSize(30, 26); self.btn_aur_ref.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_aur_ref.setFixedSize(34, 28); self.btn_aur_ref.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_aur_ref.setStyleSheet("QPushButton { padding:0px; background:rgba(0,0,0,70); border:1px solid #888; border-radius:7px; }"
                                        "QPushButton:hover { background:rgba(255,255,255,30); }")
         self.btn_aur_ref.setToolTip("Buscar de nuevo los dispositivos de audio (para auriculares Bluetooth o un DAC conectado después de abrir el programa).\n"
                                     "Corta el sonido un instante.")
         self.btn_aur_ref.clicked.connect(self._aur_buscar_de_nuevo)
-        fila1.addWidget(self.btn_aur_ref)
-        col.addLayout(fila1)
         # Play propio de los auriculares: suena SOLO por ahí, con su propia posición (el deck no arranca, no se dispara
         # la mezcla automática y no se oye en los parlantes). La barra mueve la posición de la última previa tocada.
         aur.decks = {"A": self.deck_a, "B": self.deck_b}
-        fila_p = QHBoxLayout(); fila_p.setContentsMargins(0, 0, 0, 0); fila_p.setSpacing(4)
+        fila_p = QHBoxLayout(); fila_p.setContentsMargins(0, 0, 0, 0); fila_p.setSpacing(5)
         self.btn_prev = {}
         for deck, color in ((self.deck_a, COLOR_DECK_A), (self.deck_b, COLOR_DECK_B)):
             b = QPushButton(f"▶{deck.name}")
-            b.setCheckable(True); b.setFixedSize(40, 26); b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setCheckable(True); b.setFixedSize(40, 28); b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setStyleSheet(f"QPushButton {{ color:{color}; font-weight:bold; padding:0px; background:rgba(0,0,0,70);"
                             f" border:1px solid {color}; border-radius:7px; }}"
                             f"QPushButton:hover {{ background:rgba(255,255,255,30); }}"
@@ -63,7 +58,7 @@ class AuricularesMixin:
             self.btn_prev[deck.name] = b
             fila_p.addWidget(b)
         self.sld_prev = QSlider(Qt.Orientation.Horizontal)
-        self.sld_prev.setRange(0, 1000); self.sld_prev.setFixedHeight(26)
+        self.sld_prev.setRange(0, 1000); self.sld_prev.setFixedHeight(28)
         self.sld_prev.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.sld_prev.setToolTip("Posición de la previa de auriculares (arrastrá para saltar a otra parte del tema).")
         self.sld_prev.sliderMoved.connect(self._prev_mover)
@@ -73,16 +68,18 @@ class AuricularesMixin:
         self._prev_timer = QTimer(self); self._prev_timer.setInterval(120)
         self._prev_timer.timeout.connect(self._prev_tick)
         self.cmb_aur = _ComboRefresco(self._aur_refrescar)
-        self.cmb_aur.setFixedHeight(26)
-        self.cmb_aur.setMinimumContentsLength(14)
+        self.cmb_aur.setFixedHeight(28)
+        self.cmb_aur.setMinimumContentsLength(10)
         self.cmb_aur.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.cmb_aur.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.cmb_aur.setToolTip("Salida de sonido de los auriculares (por ejemplo tu DAC USB).")
-        col.addWidget(self.cmb_aur)
+        fila_c = QHBoxLayout(); fila_c.setContentsMargins(0, 0, 0, 0); fila_c.setSpacing(5)
+        fila_c.addWidget(self.cmb_aur, 1); fila_c.addWidget(self.btn_aur_ref)
+        col.addLayout(fila_c)
         fila3 = QHBoxLayout(); fila3.setContentsMargins(0, 0, 0, 0); fila3.setSpacing(6)
         fila3.addWidget(QLabel("🔊"))
         self.sld_aur = QSlider(Qt.Orientation.Horizontal)
-        self.sld_aur.setRange(0, 100); self.sld_aur.setFixedHeight(26)
+        self.sld_aur.setRange(0, 100); self.sld_aur.setFixedHeight(28)
         self.sld_aur.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.sld_aur.setValue(int(cfg.get("aur_vol", 80)))
         aur.vol = self.sld_aur.value() / 100.0
@@ -90,7 +87,7 @@ class AuricularesMixin:
         self.sld_aur.valueChanged.connect(self._aur_vol_cambio)
         fila3.addWidget(self.sld_aur, 1); fila3.addWidget(self.lbl_aur)
         col.addLayout(fila3)
-        self._fila_herr.insertWidget(2, self.marco_aur, 0, Qt.AlignmentFlag.AlignTop)
+        self._fila_herr.insertWidget(1, self.marco_aur, 4)      # entre Herramientas y Mezcla
         self._aur_nombre_pref = cfg.get("aur_nombre", "")
         # Arranque rápido: NO se consulta la lista de dispositivos ni se abre la salida ahora (en Windows puede tardar
         # varios segundos). Se muestra el nombre guardado y se abre recién al tocar A/B o al desplegar la lista.

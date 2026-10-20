@@ -1,7 +1,8 @@
 """AutoMix — ⚙ Ajustes generales del cruce: todos los tiempos que arman el 'retardo' (la onda) del crossfader.
 Lo que se mueve acá se aplica enseguida (en la próxima mezcla) y queda guardado."""
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
+import time
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider,
                                QVBoxLayout, QWidget)
 from setup import cruce_auto
@@ -64,6 +65,18 @@ class VistaRitmo(QWidget):
         self.v = ventana
         self.setMinimumHeight(165)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._t0 = time.perf_counter()                 # la bolita recorre la curva en tiempo real y vuelve a empezar
+        self._reloj = QTimer(self); self._reloj.setTimerType(Qt.TimerType.PreciseTimer); self._reloj.setInterval(16)   # ~60 cuadros/s, parejos
+        self._clave = None; self._pix = None; self._caso_c = None; self._caso_t = 0.0
+        self._reloj.timeout.connect(self.update)
+
+    PAUSA_FINAL = 0.7                                  # s que se queda arriba a la derecha antes de reiniciar
+
+    def showEvent(self, ev):
+        self._t0 = time.perf_counter(); self._reloj.start(); super().showEvent(ev)
+
+    def hideEvent(self, ev):
+        self._reloj.stop(); super().hideEvent(ev)
 
     def _caso(self):
         v = self.v
@@ -79,12 +92,12 @@ class VistaRitmo(QWidget):
         D = max(cruce_auto.MIN_DUR, min(cruce_auto.MAX_DUR, cruce_auto.DUR_IDEAL))
         return D, cruce_auto.hay_pausa(), 0.22, 0.17, f"ejemplo ({D:.0f} s)"
 
-    def paintEvent(self, ev):
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
+    def _fondo(self, w, h, dpr, D, pausa, pc, pb, titulo):
+        """Parte fija del gráfico (marco, cuadrícula, curva, marcas, rieles y textos): se dibuja UNA vez y se guarda como imagen."""
+        pm = QPixmap(int(w * dpr), int(h * dpr)); pm.setDevicePixelRatio(dpr); pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(QPen(QColor(TEMA["linea"]), 1)); p.setBrush(QBrush(QColor("#070a12")))
         p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
-        D, pausa, pc, pb, titulo = self._caso()
         pa = cruce_auto.PAUSA if pausa else 0.0
         total = D + pa
         x0, x1, yt, yb = 34.0, w - 12.0, 32.0, h - 22.0
@@ -106,10 +119,7 @@ class VistaRitmo(QWidget):
             p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(255, 200, 60, 40))
             p.drawRect(QRectF(X(0.5 * D), yt, X(0.5 * D + pa) - X(0.5 * D), yb - yt))
         n = 240
-        pts = []
-        for i in range(n + 1):
-            T = total * i / n
-            pts.append(QPointF(X(T), Y(cruce_auto._t_de_T(T, D, pausa, pc, pb))))
+        pts = [QPointF(X(total * i / n), Y(cruce_auto._t_de_T(total * i / n, D, pausa, pc, pb))) for i in range(n + 1)]
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(QColor(255, 255, 255, 60), 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)); p.drawPolyline(QPolygonF(pts))
         p.setPen(QPen(QColor("#ffd84a"), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)); p.drawPolyline(QPolygonF(pts))
@@ -132,10 +142,49 @@ class VistaRitmo(QWidget):
             p.setPen(QPen(QColor(col), 1.2, Qt.PenStyle.DashLine)); p.drawLine(QPointF(X(T), yt), QPointF(X(T), yb))
             p.setPen(QColor(col))
             p.drawText(QRectF(X(T) + 4, 3 + 12 * i, 140, 14), int(Qt.AlignmentFlag.AlignLeft), f"{txt} {T:.1f} s")     # una debajo de la otra
+        y75 = Y(0.75)                                                    # riel horizontal al 75 %
+        p.setPen(QPen(QColor(255, 216, 74, 120), 1.4)); p.drawLine(QPointF(x0, y75), QPointF(x1, y75))
         p.setPen(QColor("#8aa"))
         p.drawText(QRectF(x0, yb + 3, 80, 16), int(Qt.AlignmentFlag.AlignLeft), "0 s")
         p.drawText(QRectF(x1 - 160, yb + 3, 160, 16), int(Qt.AlignmentFlag.AlignRight), f"{total:.1f} s")
         p.drawText(QRectF(x0 + 60, yb + 3, x1 - x0 - 230, 16), int(Qt.AlignmentFlag.AlignCenter), titulo)
+        p.end()
+        return pm
+
+    def paintEvent(self, ev):
+        w, h = self.width(), self.height()
+        dpr = self.devicePixelRatioF()
+        ahora = time.perf_counter()
+        if self._caso_c is None or ahora - self._caso_t > 0.12:           # los deslizadores se leen unas 8 veces por segundo
+            self._caso_c = self._caso(); self._caso_t = ahora
+        D, pausa, pc, pb, titulo = self._caso_c
+        clave = (w, h, dpr, round(D, 3), bool(pausa), pc, pb, titulo, round(cruce_auto.PAUSA, 3),
+                 tuple(round(float(getattr(cruce_auto, k, 0)), 4) for k in ("ZONA_K", "ZONA_MIN", "ZONA_ACEL")))
+        if clave != self._clave:
+            self._pix = self._fondo(w, h, dpr, D, pausa, pc, pb, titulo); self._clave = clave
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.drawPixmap(0, 0, self._pix)
+        pa = cruce_auto.PAUSA if pausa else 0.0
+        total = D + pa
+        x0, x1, yt, yb = 34.0, w - 12.0, 32.0, h - 22.0
+        ciclo = total + self.PAUSA_FINAL
+        T = min((ahora - self._t0) % max(0.1, ciclo), total)
+        pos = cruce_auto._t_de_T(T, D, pausa, pc, pb)
+        bx, by = x0 + (x1 - x0) * T / max(0.001, total), yb - (yb - yt) * pos
+        p.setPen(QPen(QColor(255, 255, 255, 40), 1, Qt.PenStyle.DotLine)); p.drawLine(QPointF(bx, yb), QPointF(bx, by))
+        p.setPen(Qt.PenStyle.NoPen)
+        bx2 = x0 + (x1 - x0) * pos                       # igual que el marcador del panel "Forma de cruce A/B": su lugar es la posición del crossfader (0 % a 100 %)
+        y75 = yb - (yb - yt) * 0.75
+        p.setBrush(QColor(255, 216, 74, 70)); p.drawEllipse(QPointF(bx2, y75), 10, 10)
+        p.setBrush(QColor("#ffd84a")); p.drawEllipse(QPointF(bx2, y75), 5.5, 5.5)
+        p.setBrush(QColor(255, 216, 74, 70)); p.drawEllipse(QPointF(bx, by), 11, 11)
+        p.setBrush(QColor(255, 216, 74, 140)); p.drawEllipse(QPointF(bx, by), 7.5, 7.5)
+        p.setBrush(QColor("#ffffff")); p.drawEllipse(QPointF(bx, by), 4.6, 4.6)
+        p.setPen(QColor("#ffffff"))
+        fuente = QFont(self.font()); fuente.setPointSizeF(8.0); p.setFont(fuente)
+        txt = f"{T:.1f} s · {pos * 100:.0f} %"
+        tx = bx + 14 if bx < x1 - 110 else bx - 104
+        p.drawText(QRectF(tx, by + 6 if by < yb - 22 else by - 22, 100, 16), int(Qt.AlignmentFlag.AlignLeft), txt)
         p.end()
 
 

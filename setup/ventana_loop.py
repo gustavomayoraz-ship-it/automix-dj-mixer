@@ -25,26 +25,26 @@ class LoopMixin:
                    "QPushButton:checked { background:#ffb82e; color:#2a1700; border-color:#ffe08a; }")
 
     def _crear_loop(self):
-        self.marco_loop = QFrame()                      # cuadro con degradé ámbar
+        self.marco_loop = QFrame()                      # fila plana (la tarjeta 🎬 Mezcla ya tiene su marco)
         self.marco_loop.setObjectName("marcoLoop")
-        self.marco_loop.setStyleSheet(qss_marco("QFrame#marcoLoop", TEMA["ambar"], titulo=False).replace("border-radius:12px", "border-radius:9px"))
-        fila = QHBoxLayout(self.marco_loop); fila.setContentsMargins(6, 3, 6, 3); fila.setSpacing(4)
+        self.marco_loop.setStyleSheet("QFrame#marcoLoop { background:transparent; border:none; }")
+        fila = QHBoxLayout(self.marco_loop); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(5)
         self._loop_deck = None
         self._loop_estilo = None
         self.btn_loop = QPushButton("🔁 Loop")
-        self.btn_loop.setFixedHeight(26); self.btn_loop.setMinimumWidth(96)
+        self.btn_loop.setFixedHeight(28); self.btn_loop.setMinimumWidth(70)
         self.btn_loop.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_loop.setStyleSheet(self._QSS_LOOP_OFF)
         self.btn_loop.setToolTip("Repite un trozo del tema que está sonando (pegado a los golpes de la grilla).\n"
                                  "Con el loop andando soltás el otro tema encima y se engancha al compás.\n"
                                  "Al soltar el loop, el tema sigue por donde estaría si nunca hubiera repetido.  [Tecla L]")
         self.btn_loop.clicked.connect(self._loop_alternar)
-        fila.addWidget(self.btn_loop)
+        fila.addWidget(self.btn_loop, 1)
         self._grp_loop = QButtonGroup(self); self._grp_loop.setExclusive(True)
         pref = int(leer_config().get("loop_golpes", 4))
         self._loop_golpes = pref if pref in (1, 2, 4, 8) else 4
         for txt, n, tip in self.LOOP_LARGOS:
-            b = QPushButton(txt); b.setCheckable(True); b.setFixedSize(30, 26)
+            b = QPushButton(txt); b.setCheckable(True); b.setFixedSize(32, 28)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus); b.setStyleSheet(self._QSS_LOOP_N); b.setToolTip(tip)
             b.setChecked(n == self._loop_golpes)
             b.clicked.connect(lambda _=False, n=n: self._loop_largo_cambio(n))

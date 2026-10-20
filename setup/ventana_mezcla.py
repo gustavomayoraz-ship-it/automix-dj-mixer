@@ -20,11 +20,21 @@ class MezclaMixin:
             if not self.f2_global.registrar() and sys.platform == "win32":
                 try: self._set_status("⚠️ F2 ya lo usa otro programa: solo funciona con AutoMix en primer plano")
                 except Exception: print("[F2] otro programa ya usa F2: solo funciona con AutoMix en primer plano")
+            self.vol_global.registrar()
         else:
             self.f2_global.quitar()
+            self.vol_global.quitar()
         if guardar:
             try: guardar_config(f2_global=bool(activo))
             except Exception: pass
+
+    def _vol_tecla(self, delta):
+        """+ / − del teclado numérico: sube o baja el volumen general de a 2 %."""
+        try:
+            self.sld_master.setValue(max(0, min(100, self.sld_master.value() + 2 * delta)))
+            self._set_status(f"🔊 Volumen {self.sld_master.value()}%")
+        except Exception:
+            pass
 
     def _mix_clicked(self):
         if self.mix_pausa_timer.isActive():          # en la pausa del 50 %: seguir ya, sin invertir el sentido
@@ -105,7 +115,10 @@ class MezclaMixin:
                 import traceback; traceback.print_exc()
                 self._pc_mix = None
         interval_ms = 50
-        self.mix_steps_total = int(duration_s * (1000.0 / interval_ms))
+        self._mix_dur = max(0.5, float(duration_s))      # la mezcla se mide con el RELOJ REAL (dura lo que marca el gráfico de ⚙, aunque el temporizador se atrase)
+        self._mix_acum = 0.0
+        self._mix_tref = time.perf_counter()
+        self.mix_steps_total = 1000                      # (solo para mostrar el avance en %)
         self.mix_steps_done = 0
         self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True)) or not cruce_auto.hay_pausa()     # cruce simple: sin pausa · Auto y Manual: con la pausa del 50 % de ⚙ Ajustes (3 s por defecto; Auto la omite si no queda tiempo)
         self.mix_pausa_timer.stop()
@@ -113,7 +126,11 @@ class MezclaMixin:
         self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🤖 {self._plan['nombre']}" if self._plan else ""))
 
     def _mix_step(self):
-        if self.mix_steps_done >= self.mix_steps_total:
+        ahora = time.perf_counter()
+        self._mix_acum += ahora - self._mix_tref         # tiempo real transcurrido de mezcla (sin contar la pausa del 50 %)
+        self._mix_tref = ahora
+        if self._mix_acum >= self._mix_dur:
+            self.mix_steps_done = self.mix_steps_total
             self.mix_timer.stop()
             self.crossfader.setValue(self.mix_to)
             self._plan = None
@@ -121,8 +138,8 @@ class MezclaMixin:
             self._set_status("🎬 Mezcla completada")
             return
 
-        self.mix_steps_done += 1
-        frac = self.mix_steps_done / self.mix_steps_total
+        frac = min(1.0, self._mix_acum / self._mix_dur)
+        self.mix_steps_done = int(frac * self.mix_steps_total)
         pc, zpb = (self._plan.get("pc"), self._plan.get("zpb")) if self._plan else (getattr(self, "_pc_mix", None) or (None, None))
         if pc is not None:                               # frena al acercarse al cruce de las dos líneas, sale lento y acelera hasta el 50 % (Auto y Manual)
             frac = cruce_auto.pos_cruce(frac, pc, zpb)
@@ -163,8 +180,9 @@ class MezclaMixin:
         d.show(); d.raise_(); d.activateWindow()
 
     def _reanudar_mix(self):
-        if self.mix_steps_done < self.mix_steps_total:
+        if self._mix_acum < self._mix_dur:
             self._set_status("🎬 Mezcla reanudada")
+            self._mix_tref = time.perf_counter()
             self.mix_timer.start(50)
 
     # ================= PAUSA/PLAY CON ESPACIO =================

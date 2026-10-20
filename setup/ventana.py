@@ -167,17 +167,14 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         izq.addLayout(decks_ab)
         izq.addStretch(1)                        # la duración queda centrada en el hueco entre los decks y el panel de abajo
         self._fila_duracion = QHBoxLayout(); self._fila_duracion.setContentsMargins(0, 0, 0, 0); self._fila_duracion.setSpacing(6)
-        izq.addLayout(self._fila_duracion)       # a la altura del botón "Valores por defecto", justo debajo de los dos decks
-        self._fila_herr = QHBoxLayout(); self._fila_herr.setContentsMargins(0, 0, 0, 0); self._fila_herr.setSpacing(18)
-        izq.addLayout(self._fila_herr)           # herramientas: a la izquierda la rejilla (en vertical), a la derecha la grabación
-        self.marco_rej = QFrame()                  # cuadro con degradé cian para las rejillas y el botón Auto
+        izq.addLayout(self._fila_duracion)       # barra de iconos (teclas globales, consola, esquina, ajustes), justo debajo de los decks
+        self._fila_herr = QHBoxLayout(); self._fila_herr.setContentsMargins(0, 0, 0, 0); self._fila_herr.setSpacing(10)
+        izq.addLayout(self._fila_herr)           # tres tarjetas del mismo alto: 🛠 Herramientas · 🎧 Auriculares · 🎬 Mezcla
+        self.marco_rej = QGroupBox("🛠 Herramientas")          # tarjeta cian: Auto-grilla + tono fijo, grabación y efectos
         self.marco_rej.setObjectName("marcoRej")
-        self.marco_rej.setStyleSheet(qss_marco("QFrame#marcoRej", TEMA["cian"], titulo=False))
-        self._fila_rej = QVBoxLayout(self.marco_rej); self._fila_rej.setContentsMargins(8, 4, 8, 4); self._fila_rej.setSpacing(3)
-        self._fila_grab = QVBoxLayout(); self._fila_grab.setContentsMargins(0, 0, 0, 0); self._fila_grab.setSpacing(4)
-        self._fila_herr.addWidget(self.marco_rej, 0, Qt.AlignmentFlag.AlignTop)
-        self._fila_herr.addLayout(self._fila_grab)
-        self._fila_herr.addStretch(1)
+        self.marco_rej.setStyleSheet(qss_marco("QGroupBox#marcoRej", TEMA["cian"]))
+        self._fila_rej = QVBoxLayout(self.marco_rej); self._fila_rej.setContentsMargins(10, 6, 10, 8); self._fila_rej.setSpacing(6)
+        self._fila_herr.addWidget(self.marco_rej, 5)
         izq.addStretch(1)
         decks_row.addLayout(izq, stretch=1)
         decks_row.addWidget(self.panel_cruce, alignment=Qt.AlignmentFlag.AlignTop)
@@ -253,8 +250,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         fila_estado.addStretch(1)
         self.btn_consola = QPushButton("🖥")
         self.btn_consola.setCheckable(True)
-        self.btn_consola.setFixedSize(76, 52)
-        self.btn_consola.setStyleSheet("QPushButton { font-size:30px; padding:0px; }")
+        self.btn_consola.setFixedSize(50, 34)
+        self.btn_consola.setStyleSheet("QPushButton { font-size:19px; padding:0px; }")
         self.btn_consola.setToolTip("Mostrar / ocultar la consola (todo lo que hace el programa, con hora)")
         self.btn_consola.clicked.connect(self._alternar_consola)
         self._t_consola = QTimer(self); self._t_consola.setInterval(600)       # si la cerraron con la X, el botón se suelta
@@ -264,34 +261,40 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
             self.btn_consola.setVisible(False)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_consola)   # al costado de Duración, mismo tamaño
         self.btn_grabar = QPushButton("⏺ Grabar mezcla")
-        self.btn_grabar.setFixedHeight(30)
-        self.btn_grabar.setMinimumWidth(190)
+        self.btn_grabar.setFixedHeight(28)
+        self._QSS_GRAB = ("QPushButton { background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ff7a86, stop:1 #e0283c); color:#ffffff; font-weight:bold;"
+                          " border:1px solid #ffb3bb; border-radius:9px; }"
+                          "QPushButton:hover { background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ff95a0, stop:1 #f03a4e); }"
+                          "QPushButton:pressed { background:#b81e2f; padding-top:2px; }")
+        self.btn_grabar.setStyleSheet(self._QSS_GRAB)           # rojo de "REC" (al grabar pasa a rojo oscuro con borde brillante)
         self.btn_grabar.setToolTip("Graba en un .wav todo lo que suena (la mezcla completa, con ecualizador y limitador)")
         self.btn_grabar.clicked.connect(self._alternar_grabacion)
         self.btn_carpeta_grab = QPushButton("📂")
-        self.btn_carpeta_grab.setFixedSize(52, 30)
+        self.btn_carpeta_grab.setFixedSize(44, 28)
         self.btn_carpeta_grab.setToolTip("Abrir la carpeta con las mezclas grabadas")
         self.btn_carpeta_grab.clicked.connect(self._abrir_carpeta_grabaciones)
         self.lbl_grab = EtiquetaElidida("")
-        self.lbl_grab.setFixedHeight(30); self.lbl_grab.setStyleSheet("color:#9fe3c6; font-size:12px;")
-        fila_g = QHBoxLayout(); fila_g.setSpacing(6); fila_g.setContentsMargins(0, 0, 0, 0)
-        fila_g.addWidget(self.btn_grabar); fila_g.addWidget(self.btn_carpeta_grab)
-        self._fila_grab.addLayout(fila_g)
-        self._fila_grab.addWidget(self.lbl_grab)                 # (el nombre del .wav guardado)
-        self._fila_grab.addWidget(self.chk_wsola)                # misma línea que el botón Auto
-        self.chk_wsola.setFixedHeight(30)
-        self._fila_grab.addWidget(self._crear_efectos())         # 🎆 efectos de sonido (lista + ▶ + volumen)
-        self._fila_grab.addStretch(1)
-        self._crear_auriculares()                                # columna 🎧 entre la grabación y el botón Mezclar
-        self._t_grab = QTimer(self); self._t_grab.setInterval(250)
-        self._t_grab.timeout.connect(self._tic_grabacion)
+        self.lbl_grab.setFixedHeight(28); self.lbl_grab.setStyleSheet("color:#9fe3c6; font-size:11px;")   # (el nombre del .wav guardado)
         self.btn_auto_rej = QPushButton("🎯 Auto")
         self.btn_auto_rej.setCheckable(True)
-        self.btn_auto_rej.setFixedHeight(28); self.btn_auto_rej.setMinimumWidth(130)
+        self.btn_auto_rej.setFixedHeight(28); self.btn_auto_rej.setMinimumWidth(92)
         self.btn_auto_rej.setToolTip("Auto-grilla (verde = activada, rojo = desactivada).\nActivada: revisa sin parar los temas que entran, "
                                      "corrige el BPM doble/mitad, centra la grilla en los bombos, encuentra solo dónde empieza el compás (el 1) "
                                      "y los empareja (tempo + compases). Ya no hay nada que ajustar a mano.")
         self.btn_auto_rej.setChecked(bool(leer_config().get("auto_grilla", True)))
+        self.chk_wsola.setFixedHeight(28)
+        # fila 1: Auto + Grabar mezcla (ancho) + 📂 · fila 2: tono fijo (y el nombre del .wav guardado) · fila 3: efectos de sonido
+        fila_au = QHBoxLayout(); fila_au.setContentsMargins(0, 0, 0, 0); fila_au.setSpacing(8)
+        fila_au.addWidget(self.btn_auto_rej); fila_au.addWidget(self.btn_grabar, 1); fila_au.addWidget(self.btn_carpeta_grab)
+        self._fila_rej.addLayout(fila_au)
+        fila_g = QHBoxLayout(); fila_g.setSpacing(10); fila_g.setContentsMargins(0, 0, 0, 0)
+        fila_g.addWidget(self.chk_wsola); fila_g.addWidget(self.lbl_grab, 1)
+        self._fila_rej.addLayout(fila_g)
+        self._fila_rej.addWidget(self._crear_efectos())          # 🎆 efectos de sonido (lista + ▶ + volumen)
+        self._fila_rej.addStretch(1)
+        self._crear_auriculares()                                # tarjeta 🎧 (se acomoda entre Herramientas y Mezcla)
+        self._t_grab = QTimer(self); self._t_grab.setInterval(250)
+        self._t_grab.timeout.connect(self._tic_grabacion)
         for _b in (self.btn_auto_rej, self.btn_grabar, self.btn_carpeta_grab):
             _b.setFocusPolicy(Qt.FocusPolicy.NoFocus)         # que la barra espaciadora / Enter nunca los active por accidente
         self._estilo_auto_rej()
@@ -301,21 +304,18 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self._t_auto_rej.timeout.connect(self._vigilar_rejilla)
         if self.btn_auto_rej.isChecked():
             self._t_auto_rej.start()
-        fila_au = QHBoxLayout(); fila_au.setContentsMargins(0, 0, 0, 0)
-        fila_au.addWidget(self.btn_auto_rej); fila_au.addStretch(1)
-        self._fila_rej.addLayout(fila_au)
         self.lbl_rej = QLabel(""); self.lbl_rej.setWordWrap(True); self.lbl_rej.setStyleSheet("color:#9fe3c6; font-size:12px;")
         izq.addWidget(self.lbl_rej)               # lo que encontró y corrigió el botón Auto
         self.btn_esquina = QPushButton("↖")
-        self.btn_esquina.setFixedSize(76, 52)
-        self.btn_esquina.setStyleSheet("QPushButton { font-size:34px; padding:0px; }")
+        self.btn_esquina.setFixedSize(50, 34)
+        self.btn_esquina.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
         self.btn_esquina.setToolTip("Ventana al tamaño mínimo, en la esquina superior izquierda de la pantalla")
         self.btn_esquina.clicked.connect(self._a_la_esquina)
         self._f_dur.insertSpacing(self._f_dur.count() - 1, 6)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_esquina)   # al lado de la consola
         self.btn_ajustes_gen = QPushButton("⚙")
-        self.btn_ajustes_gen.setFixedSize(76, 52)
-        self.btn_ajustes_gen.setStyleSheet("QPushButton { font-size:34px; padding:0px; }")
+        self.btn_ajustes_gen.setFixedSize(50, 34)
+        self.btn_ajustes_gen.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
         self.btn_ajustes_gen.setToolTip("Ajustes generales: todos los tiempos del cruce (pausa del medio, frenado del crossfader, duración y entrada de B del Auto)")
         self.btn_ajustes_gen.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_ajustes_gen.clicked.connect(self._abrir_ajustes_cruce)
@@ -369,6 +369,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.mix_timer.timeout.connect(self._mix_step)
         self.mix_steps_total = 0
         self.mix_steps_done = 0
+        self._mix_dur = 0.0; self._mix_acum = 0.0; self._mix_tref = 0.0     # la mezcla se mide con el reloj real
         self.mix_from = 0
         self.mix_to = 0
 
@@ -483,6 +484,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
     def closeEvent(self, event):
         log("programa", "cerrando AutoMix")
         try: self.f2_global.quitar()
+        except Exception: pass
+        try: self.vol_global.quitar()
         except Exception: pass
         try:
             if self.mixer.grabador.activo:

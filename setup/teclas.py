@@ -1,4 +1,4 @@
-"""AutoMix — tecla F2 global (Windows)."""
+"""AutoMix — teclas globales F2 y + / − del teclado numérico (Windows)."""
 import sys
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QTimer
 
@@ -48,6 +48,64 @@ class TeclaGlobalF2(QAbstractNativeEventFilter):
                 msg = wintypes.MSG.from_address(int(message))
                 if msg.message == self.WM_HOTKEY and msg.wParam == self.ID:
                     QTimer.singleShot(0, self.accion)
+        except Exception:
+            pass
+        return False, 0
+
+
+class TeclasGlobalesVolumen(QAbstractNativeEventFilter):
+    """+ y − del teclado numérico como teclas "globales": suben/bajan el volumen aunque el programa esté en segundo plano.
+    Se dejan repetir: mantenerlas apretadas sigue moviendo el volumen."""
+    ID_MAS = 0xA7F3
+    ID_MENOS = 0xA7F4
+    WM_HOTKEY = 0x0312
+    VK_ADD = 0x6B
+    VK_SUBTRACT = 0x6D
+
+    def __init__(self, accion):
+        super().__init__()
+        self.accion = accion          # accion(delta): +1 sube, -1 baja
+        self.activa = False
+
+    def registrar(self):
+        if sys.platform != "win32" or self.activa:
+            return self.activa
+        try:
+            import ctypes
+            u = ctypes.windll.user32
+            ok1 = u.RegisterHotKey(None, self.ID_MAS, 0, self.VK_ADD)
+            ok2 = u.RegisterHotKey(None, self.ID_MENOS, 0, self.VK_SUBTRACT)
+            if ok1 or ok2:
+                QCoreApplication.instance().installNativeEventFilter(self)
+                self.activa = True
+                self._ok = (bool(ok1), bool(ok2))
+        except Exception:
+            self.activa = False
+        return self.activa
+
+    def quitar(self):
+        if not self.activa:
+            return
+        try:
+            import ctypes
+            ctypes.windll.user32.UnregisterHotKey(None, self.ID_MAS)
+            ctypes.windll.user32.UnregisterHotKey(None, self.ID_MENOS)
+            QCoreApplication.instance().removeNativeEventFilter(self)
+        except Exception:
+            pass
+        self.activa = False
+
+    def nativeEventFilter(self, event_type, message):
+        try:
+            if bytes(event_type) in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+                import ctypes
+                from ctypes import wintypes
+                msg = wintypes.MSG.from_address(int(message))
+                if msg.message == self.WM_HOTKEY:
+                    if msg.wParam == self.ID_MAS:
+                        QTimer.singleShot(0, lambda: self.accion(+1))
+                    elif msg.wParam == self.ID_MENOS:
+                        QTimer.singleShot(0, lambda: self.accion(-1))
         except Exception:
             pass
         return False, 0

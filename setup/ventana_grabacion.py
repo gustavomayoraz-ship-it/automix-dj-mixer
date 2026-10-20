@@ -31,7 +31,7 @@ class GrabacionMixin:
         g = self.mixer.grabador
         self._t_grab.stop()
         ruta, seg = g.detener()
-        self.btn_grabar.setStyleSheet("")
+        self.btn_grabar.setStyleSheet(self._QSS_GRAB)
         self.btn_grabar.setText("⏺ Grabar mezcla")
         if ruta and seg > 0:
             m, s = divmod(int(seg), 60)

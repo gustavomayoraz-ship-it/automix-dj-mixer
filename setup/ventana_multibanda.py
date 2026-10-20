@@ -1,11 +1,11 @@
 """AutoMix — panel de multibanda y ecualizador inteligente (controles y ajustes)."""
 import sys
-from PySide6.QtWidgets import QCheckBox, QDialog, QFrame, QGraphicsDropShadowEffect, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout
+from PySide6.QtWidgets import QCheckBox, QDialog, QFrame, QGraphicsDropShadowEffect, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt
 from setup.base import _log_diferido
 from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MAN_COMP, DEF_MAN_RATIO, DEF_MAN_UMBRAL, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, guardar_config, leer_config
-from setup.teclas import TeclaGlobalF2
+from setup.teclas import TeclaGlobalF2, TeclasGlobalesVolumen
 from setup.tema import TEMA
 from setup.widgets import EtiquetaAncha, EtiquetaElidida, VuMeter, qss_marco
 
@@ -115,33 +115,40 @@ class MultibandaMixin:
             "QPushButton:disabled { background:#3a3322; color:#7a7155; border-color:#4a422c; }")
         _glow = QGraphicsDropShadowEffect(self.btn_mix); _glow.setBlurRadius(26); _glow.setOffset(0, 2); _glow.setColor(QColor(255, 160, 0, 130))
         self.btn_mix.setGraphicsEffect(_glow)
-        # El botón Mezclar va abajo, a la derecha (debajo del Deck B), a la altura de la fila "Rejilla B"
-        col_mix = QVBoxLayout(); col_mix.setContentsMargins(0, 0, 0, 0); col_mix.setSpacing(0)
-        col_mix.setContentsMargins(0, -10, 0, 0)  # el cuadro del loop sube un poco, por encima de la fila "Rejilla A"
-        col_mix.addWidget(self._crear_loop())     # 🔁 Loop + largo (¼ ½ 1 2), arriba del botón Mezclar
-        col_mix.addSpacing(6)
-        self.btn_mix.setMinimumWidth(230)
-        col_mix.addWidget(self.btn_mix)
-        self.chk_f2g = QCheckBox("⌨ F2 funciona con el programa en segundo plano")
-        self.chk_f2g.setToolTip("Con esto activado, F2 mezcla aunque estés en otra ventana o programa (mientras AutoMix esté abierto).\n"
-                                "Mientras esté activado, F2 no llega a los otros programas (por ejemplo, renombrar en el Explorador).")
+        # Tarjeta 🎬 Mezcla (ámbar): loop, duración y el botón Mezclar grande
+        self.marco_mezcla = QGroupBox("🎬 Mezcla")
+        self.marco_mezcla.setObjectName("marcoMezcla")
+        self.marco_mezcla.setStyleSheet(qss_marco("QGroupBox#marcoMezcla", TEMA["ambar"]))
+        col_mix = QVBoxLayout(self.marco_mezcla); col_mix.setContentsMargins(10, 6, 10, 8); col_mix.setSpacing(6)
+        col_mix.addWidget(self._crear_loop())     # 🔁 Loop + largo (¼ ½ 1 2)
+        self.spin_mix.setFixedWidth(58)           # corto: solo el número
+        fila_d = QHBoxLayout(); fila_d.setContentsMargins(0, 0, 0, 0); fila_d.setSpacing(8)
+        self.lbl_dur.setFixedHeight(28)
+        fila_d.addWidget(self.lbl_dur); fila_d.addWidget(self.spin_mix); fila_d.addStretch(1)
+        col_mix.addLayout(fila_d)
+        self.btn_mix.setMinimumWidth(0)
+        self.btn_mix.setMinimumHeight(38); self.btn_mix.setMaximumHeight(16777215)
+        self.btn_mix.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        col_mix.addWidget(self.btn_mix, 1)
+        self._fila_herr.addWidget(self.marco_mezcla, 4)
+        # barra de iconos (arriba de las tarjetas): teclas globales a la izquierda de 🖥 ↖ ⚙
+        self.chk_f2g = QCheckBox("⌨ Teclas globales")
+        self.chk_f2g.setToolTip("Con esto activado, F2 (mezclar) y + / − del teclado numérico (volumen) funcionan aunque estés en otra ventana o programa (mientras AutoMix esté abierto).\n"
+                                "Mientras esté activado, esas teclas no llegan a los otros programas (por ejemplo, renombrar en el Explorador).")
         self.chk_f2g.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.f2_global = TeclaGlobalF2(self._mix_clicked)
+        self.vol_global = TeclasGlobalesVolumen(self._vol_tecla)
         if sys.platform != "win32":
             self.chk_f2g.setVisible(False)
         self.chk_f2g.setChecked(bool(leer_config().get("f2_global", True)))
         self.chk_f2g.toggled.connect(self._f2_global_cambio)
-        col_mix.addWidget(self.chk_f2g)
         self._f2_global_cambio(self.chk_f2g.isChecked(), guardar=False)
-        col_mix.addStretch(1)
-        self._fila_herr.addLayout(col_mix)
-        self.spin_mix.setFixedWidth(58)           # corto: solo el número
-        f_dur = self._fila_duracion               # la duración vive debajo de los dos decks (se arma acá porque el spin se crea antes)
+        f_dur = self._fila_duracion
         f_dur.addStretch(1)
-        f_dur.addWidget(self.lbl_dur); f_dur.addWidget(self.spin_mix)
-        f_dur.addSpacing(6)
-        f_dur.addStretch(1)
-        self._f_dur = f_dur                       # el botón de la consola se agrega acá al lado (antes del último estirador)
+        f_dur.addWidget(self.chk_f2g)
+        f_dur.addSpacing(10)
+        f_dur.addSpacing(0)                       # (marcador: los botones 🖥 ↖ ⚙ se insertan antes de este último elemento)
+        self._f_dur = f_dur
         f_vol = QHBoxLayout(); f_vol.addWidget(QLabel("🔊 Volumen")); f_vol.addWidget(self.sld_master, 1); f_vol.addWidget(self.lbl_master)
         self.crossfader.setToolTip("Crossfader A ↔ B (volumen + BPM compartido)")
         der.addLayout(self._cf_row)

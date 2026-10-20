@@ -648,8 +648,24 @@ class Deck(QFrame):
 
     WSOLA = True
 
+    SINC_T = 32
+    SINC_FASES = 512
+    _SINC_K = np.arange(32) - 15
+    _SINC_TAB = None
+
+    @staticmethod
+    def _tabla_sinc(fc=0.96, beta=9.0):
+        if Deck._SINC_TAB is None:
+            T, F = Deck.SINC_T, Deck.SINC_FASES
+            ph = np.arange(F + 1) / F
+            d = Deck._SINC_K[None, :] - ph[:, None]
+            h = fc * np.sinc(fc * d) * np.i0(beta * np.sqrt(np.clip(1 - (d / (T / 2)) ** 2, 0, 1))) / np.i0(beta)
+            h /= h.sum(1, keepdims=True)
+            Deck._SINC_TAB = h.astype(np.float32)
+        return Deck._SINC_TAB
+
     def _render_directo(self, frames, rate):
-        """Lectura sin estirado: exacta a velocidad 1,0 y, si no, por remuestreo cúbico (cambia el tono)."""
+        """Lectura sin estirado: exacta a velocidad 1,0 y, si no, por remuestreo sinc de alta calidad (cambia el tono)."""
         n_audio = len(self.audio)
         if abs(rate - 1.0) < 1e-9 and self._cursor_frac == 0.0:
             chunk = self.audio[self.cursor:self.cursor + frames]
@@ -661,15 +677,16 @@ class Deck(QFrame):
             return chunk
         pos = self.cursor + self._cursor_frac + np.arange(frames, dtype=np.float64) * rate
         i1 = np.floor(pos).astype(np.int64)
-        t = (pos - i1).astype(np.float32)[:, None]
         if i1[-1] + 2 >= n_audio:
             self.playing = (i1[0] + 2 < n_audio)
-        idx = np.clip(np.stack([i1 - 1, i1, i1 + 1, i1 + 2]), 0, n_audio - 1)
-        p0, p1, p2, p3 = (self.audio[idx[k]] for k in range(4))
-        t2 = t * t; t3 = t2 * t
-        y = 0.5 * ((2 * p1) + (-p0 + p2) * t
-                   + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-                   + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+        # Interpolador sinc con ventana Kaiser (32 puntos): conserva los agudos hasta ~20 kHz (el cúbico los degradaba)
+        tab = Deck._tabla_sinc()
+        fr = (pos - i1) * Deck.SINC_FASES
+        j = np.floor(fr).astype(np.int64)
+        w = (fr - j).astype(np.float32)[:, None]
+        H = tab[j] * (1.0 - w) + tab[j + 1] * w
+        idx = np.clip(i1[:, None] + Deck._SINC_K[None, :], 0, n_audio - 1)
+        y = np.einsum("nt,ntc->nc", H, self.audio[idx])
         valid = (pos < n_audio - 1)[:, None]
         total = self._cursor_frac + frames * rate
         int_adv = int(total)
