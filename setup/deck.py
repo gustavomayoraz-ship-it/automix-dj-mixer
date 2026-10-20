@@ -104,11 +104,12 @@ class Deck(QFrame):
         for b in (self.btn_load, self.btn_pause, self.btn_stop, self.btn_reset):       # (el ▶ pasó arriba, grande: los demás se reparten su lugar)
             b.setFixedHeight(38); b.setFixedWidth(72); r3.addWidget(b)
             fb = b.font(); fb.setPointSizeF(17.0); fb.setBold(True); b.setFont(fb)
-        self.btn_play.setFixedHeight(62); self.btn_play.setMinimumWidth(150)
+        self.btn_play.setFixedHeight(62); self.btn_play.setMinimumWidth(110)
         self.btn_play.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         fp = self.btn_play.font(); fp.setPointSizeF(34.0); fp.setBold(True); self.btn_play.setFont(fp)
         self.btn_play.setToolTip("Reproducir")
         top.addWidget(self.btn_play, 2)
+        top.addSpacing(44)                      # columna libre arriba de las flechitas del tempo: ahí aparece el relojito del reset (no pisa el ▶)
         self.btn_play.setProperty("rol", "play"); self.btn_pause.setProperty("rol", "pausa"); self.btn_stop.setProperty("rol", "stop")
         self.btn_load.clicked.connect(self.load_dialog)
         self.btn_play.clicked.connect(self.play)
@@ -517,6 +518,14 @@ class Deck(QFrame):
             self.loop = None; self.loop_desfase = 0.0; self._loop_salir = False
 
     RESET_SUAVE_S = 3.0
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        try:
+            if self.reloj_reset.isVisible():             # el reloj es un widget suelto: si cambia el tamaño, vuelve a quedar sobre las flechitas
+                self._ubicar_reloj()
+        except Exception:
+            pass
 
     def _ubicar_reloj(self):
         """Lo deja centrado justo arriba de las dos flechitas."""
