@@ -58,8 +58,11 @@ class BibliotecaMixin:
         self._actualizar_titulo_lib()
         if self._fallidos is None:
             self._fallidos = set()
-        for r in self.biblioteca.temas_sin_analisis():       # los que no se pudieron analizar no se reintentan en bucle
-            self._fallidos.add(self.biblioteca._clave(r))
+        hechos = {self.biblioteca._clave(r) for r in (getattr(getattr(self, "_analizador_bib", None), "rutas", None) or ())}
+        for r in self.biblioteca.temas_sin_analisis():       # los que se intentaron y no se pudieron analizar no se reintentan en bucle
+            k = self.biblioteca._clave(r)                    # (los agregados mientras se analizaba NO: esos todavía no se probaron)
+            if k in hechos:
+                self._fallidos.add(k)
         if self._ordenar_al_terminar:
             self._ordenar_al_terminar = False
             self._ordenar_lista()
