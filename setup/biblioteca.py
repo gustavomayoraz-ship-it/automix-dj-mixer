@@ -6,7 +6,7 @@ import re
 import stat
 import threading
 import time
-from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget, QListWidgetItem, QStyledItemDelegate
+from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox, QStyledItemDelegate
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyleOptionViewItem
 from PySide6.QtCore import QMimeData, QTimer, QUrl, Qt, Signal
@@ -127,6 +127,8 @@ class Biblioteca(QListWidget):
         self.agrupado = False      # vista por carpetas: un encabezado por carpeta y debajo sus temas
         self._plegadas = set()     # carpetas cerradas (con clic en el encabezado)
         self.itemClicked.connect(self._clic_cab)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu_contextual)      # clic derecho: quitar tema / carpeta
         self.itemChanged.connect(self._on_item_changed)     # checkbox "saltear"
         self._referencia = None    # clave Camelot del tema que suena: los compatibles se pintan de verde
 
@@ -215,7 +217,7 @@ class Biblioteca(QListWidget):
                 nombre = os.path.basename(carpeta) or carpeta
                 n_esp = sum(1 for it in grupos[carpeta] if self._clave(it.data(Qt.ItemDataRole.UserRole)) in self._cola)
                 cab.setText(self._texto_cab(carpeta, cerrada, n_esp))
-                cab.setToolTip(f"{origs[carpeta]}\n\nArrastrá este título para copiar TODA la carpeta afuera (a otra carpeta o al Escritorio).\nClic: abrir / cerrar.")
+                cab.setToolTip(f"{origs[carpeta]}\n\nArrastrá este título para copiar TODA la carpeta afuera (a otra carpeta o al Escritorio).\nClic: abrir / cerrar.\nClic derecho (o Supr): quitar la carpeta de la lista (no borra archivos).")
                 tot = sum((self.duracion(it.data(Qt.ItemDataRole.UserRole)) or 0) for it in grupos[carpeta])
                 cab.setData(Qt.ItemDataRole.UserRole + 3, f"{len(grupos[carpeta])}" + (f" / {self._fmt_dur(tot, True)}" if tot else ""))
                 for it in grupos[carpeta]:
@@ -494,15 +496,54 @@ class Biblioteca(QListWidget):
         return n
 
     def quitar_seleccion(self):
-        items = [it for it in self.selectedItems() if not self._es_cab(it)]      # nunca borrar los títulos de carpeta
-        log("biblioteca", f"quitando {len(items)} tema(s)")
-        for it in items:
-            p = it.data(Qt.ItemDataRole.UserRole)
-            self._rutas.discard(os.path.normcase(os.path.abspath(p)))
-            self.takeItem(self.row(it))
+        """Quita de la lista lo seleccionado. Si se selecciona un TÍTULO de carpeta se quita la carpeta entera (con sus temas),
+        previa confirmación. Nunca se borra ningún archivo del disco."""
+        sel = self.selectedItems()
+        carpetas = {it.data(Qt.ItemDataRole.UserRole) for it in sel if self._es_cab(it)}
+        items = {id(it): it for it in sel if not self._es_cab(it)}
+        if carpetas:
+            for i in range(self.count()):
+                it = self.item(i)
+                if not self._es_cab(it) and self._carpeta(it.data(Qt.ItemDataRole.UserRole)) in carpetas:
+                    items[id(it)] = it
+            nombres = ", ".join("«" + (os.path.basename(c) or c) + "»" for c in sorted(carpetas, key=str.lower))
+            r = QMessageBox.question(self, "Quitar carpeta de la lista",
+                                     f"¿Quitar de la lista {'la carpeta' if len(carpetas) == 1 else 'las carpetas'} {nombres} con sus {len(items)} tema(s)?\n\n"
+                                     "No se borra ningún archivo del disco: solo salen de la lista de AutoMix.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if r != QMessageBox.StandardButton.Yes:
+                return
+        items = list(items.values())
+        log("biblioteca", f"quitando {len(items)} tema(s)" + (f" · {len(carpetas)} carpeta(s)" if carpetas else ""))
+        self._cargando = True
+        try:
+            for it in items:
+                p = it.data(Qt.ItemDataRole.UserRole)
+                self._rutas.discard(os.path.normcase(os.path.abspath(p)))
+                self.takeItem(self.row(it))
+        finally:
+            self._cargando = False
         if self.agrupado:
             self._quitar_cab(); self._poner_cab()
         self.cambio.emit()
+
+    def _menu_contextual(self, pos):
+        """Clic derecho: quitar de la lista el tema (o toda la carpeta, si se toca su título)."""
+        it = self.itemAt(pos)
+        if it is None:
+            return
+        if not it.isSelected():
+            self.clearSelection(); it.setSelected(True)
+        menu = QMenu(self)
+        if self._es_cab(it):
+            c = it.data(Qt.ItemDataRole.UserRole)
+            n = sum(1 for i in range(self.count()) if not self._es_cab(self.item(i)) and self._carpeta(self.item(i).data(Qt.ItemDataRole.UserRole)) == c)
+            acc = menu.addAction(f"🗑 Quitar la carpeta de la lista ({n} temas)")
+        else:
+            n = len([x for x in self.selectedItems() if not self._es_cab(x)])
+            acc = menu.addAction("🗑 Quitar de la lista" if n <= 1 else f"🗑 Quitar de la lista ({n} temas)")
+        if menu.exec(self.viewport().mapToGlobal(pos)) is acc:
+            self.quitar_seleccion()
 
     def limpiar(self):
         log("biblioteca", "lista vaciada")
