@@ -21,6 +21,14 @@ GRUPOS = [
         ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
          "Largo de la mezcla Pro en compases. Se usa el más cercano de 4, 8, 16 o 32 que quepa en lo que le queda al tema que sale.\n16 compases a 96 BPM son unos 40 s · 8 compases, unos 20 s."),
     ]),
+    ("🥁 Frase y compás", [
+        ("ESPERA_FRASE", "Esperar a la frase (s máx., 0 = no)", 0, 30, 1, "{:.0f} s",
+         "Al llegar a la marca roja del auto-enganche, la mezcla espera (como mucho este tiempo) al próximo inicio de frase (cada 8 compases)\ndel tema que sale, así arranca en el \"1\" de la frase. 0 = arranca justo en la marca. Solo si la grilla del tema es firme."),
+        ("PAUSA_EN_LINEA", "Pausa del 50 % hasta la línea de compás", 0, 1, 1, "{:.0f}",
+         "1 = la pausa del medio termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración de abajo.\n0 = dura siempre lo mismo. Vale en Auto y en Manual."),
+        ("ADAPTA_DUR", "Acortar si chocan tonalidad o tempo", 0, 1, 1, "{:.0f}",
+         "1 = en el Auto «como mi manual», el fundido dura ¾ si la tonalidad o el tempo de los dos temas chocan (se pasa más rápido de uno al otro).\n0 = siempre el mismo largo."),
+    ]),
     ("⏸ Pausa del medio", [
         ("PAUSA", "Pausa al 50 %", 0, 80, 10, "{:.1f} s",
          "Cuánto espera el crossfader en el 50 % (los dos temas suenan a la par) antes de seguir. 0 = sin pausa.\nVale en Auto y en Manual."),
@@ -177,7 +185,7 @@ class VistaRitmo(QWidget):
             self._caso_c = self._caso(); self._caso_t = ahora
         D, pausa, pc, pb, titulo = self._caso_c
         clave = (w, h, dpr, round(D, 3), bool(pausa), pc, pb, titulo, round(cruce_auto.PAUSA, 3),
-                 tuple(round(float(getattr(cruce_auto, k, 0)), 4) for k in ("ZONA_K", "ZONA_MIN", "ZONA_ACEL", "ZONA_V", "ESTRATEGIA", "PRO_COMPASES", "MAN_COMPASES")))
+                 tuple(round(float(getattr(cruce_auto, k, 0)), 4) for k in ("ZONA_K", "ZONA_MIN", "ZONA_ACEL", "ZONA_V", "ESTRATEGIA", "PRO_COMPASES", "MAN_COMPASES", "ESPERA_FRASE", "PAUSA_EN_LINEA", "ADAPTA_DUR")))
         if clave != self._clave:
             self._pix = self._fondo(w, h, dpr, D, pausa, pc, pb, titulo); self._clave = clave
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)

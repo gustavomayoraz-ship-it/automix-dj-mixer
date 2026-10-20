@@ -31,11 +31,14 @@ ENT_MIN = 0.01          # B empieza a entrar como muy pronto a este punto del ti
 ENT_MAX = 0.04          # ... y como muy tarde a este (con más choque de voces entra más tarde)
 ZONA_ACEL = 0.10         # 1 = después del cruce acelera de a poco hasta el 50 % · menos = recupera la velocidad antes de la mitad
 ESTRATEGIA = 2.0         # 2 = como tu cruce MANUAL (tu forma, tu duración, la pausa y el frenado de ⚙), con la duración en compases enteros · 1 = Pro (mezcla larga en frase, sin pausa ni frenado) · 0 = la clásica
+ESPERA_FRASE = 8.0       # al llegar a la marca del auto-enganche, espera hasta este máximo (s) al próximo inicio de frase (8 compases) del tema que sale · 0 = arranca justo en la marca
+PAUSA_EN_LINEA = 1.0     # 1 = la pausa del 50 % termina en una línea de compás del que sale (después del cambio de bajo) · 0 = dura siempre lo mismo
+ADAPTA_DUR = 1.0         # 1 = el Auto 'como mi manual' acorta el fundido (¾) si chocan la tonalidad o el tempo · 0 = siempre el mismo largo
 MAN_COMPASES = 8.0       # estrategia 2: largo del fundido en compases (así dura lo mismo, en compases, a cualquier tempo) · 0 = usar los segundos del deslizador «Duración»
 PRO_COMPASES = 16.0      # largo de la mezcla Pro en compases (4, 8, 16 o 32: se toma el más cercano que quepa en lo que le queda al que sale)
 ZONA_V = 1.5             # tope: fuera del frenado el crossfader nunca va a más de esta velocidad (× la velocidad media de la primera mitad)
 DEFECTOS = {k: v for k, v in dict(PAUSA=PAUSA, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
-            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES).items()}
+            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
 def aplicar(valores):
@@ -358,6 +361,9 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     dur = float(forma.get("dur") or 10.0)
     pausa = hay_pausa()
     n = max(2, int(round(MAN_COMPASES))) if MAN_COMPASES >= 1 else max(2, int(round(dur / compas)))
+    choque = (compat == 0) or dif_tempo > 0.08
+    if choque and ADAPTA_DUR >= 0.5:                              # tonalidad o tempo que chocan: se pasa más rápido de un tema al otro
+        n = max(4, int(round(n * 0.75)))
     D = n * compas
     pa_s = PAUSA if pausa else 0.0
     while resta is not None and n > 2 and D + pa_s > resta - 1.0:
@@ -370,8 +376,8 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     ps = max(0.0, min(0.97, float(forma.get("ps", 0.5))))
     pc, zpb = forma.get("pc"), forma.get("zpb")
     razon = "como tu cruce manual (tu forma, tu duración, la pausa y el frenado)"
-    if compat == 0 or dif_tempo > 0.08:
-        razon += " · tonalidad/tempo chocan"
+    if choque:
+        razon += " · tonalidad/tempo chocan" + (": fundido más corto" if ADAPTA_DUR >= 0.5 else "")
     return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
             "conflicto": 0.0, "choque_ini": 0.0, "fin_voz_a": None,
             "pc": None if pc is None else float(pc), "zpb": None if zpb is None else float(zpb),

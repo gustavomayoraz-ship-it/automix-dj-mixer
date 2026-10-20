@@ -297,10 +297,21 @@ class AutomaticoMixin:
                 return
             self._aviso_armonico = None
         espera = None
-        if self.chk_frases.isChecked() and not exacto and not self._cruce_simple() and sale.playing and sale.analysis and entra.analysis and entra.audio is not None:
-            espera = self._hasta_proxima_frase(sale)
+        max_espera = float(cruce_auto.ESPERA_FRASE)       # ⚙: al llegar a la marca se espera (como mucho esto) al inicio de la próxima frase
+        por_frase = (self.chk_frases.isChecked() and not exacto) or max_espera >= 1.0
+        if por_frase and not self._cruce_simple() and sale.playing and sale.analysis and entra.analysis and entra.audio is not None:
+            try:
+                grilla_ok = bool(self.biblioteca.frase_ok(sale.path))      # solo si la grilla de compases es firme
+            except Exception:
+                grilla_ok = True
+            espera = self._hasta_proxima_frase(sale) if grilla_ok else None
+            if espera is not None and not (self.chk_frases.isChecked() and not exacto) and espera > max_espera:
+                espera = None                                              # la frase queda muy lejos de la marca: se arranca en la marca
             if espera is not None:
-                dur = self._duracion_mezcla_para(sale, entra, True)
+                if self.cruce_auto and self.cruce_ab and self.cruce_bandas:
+                    dur = self._dur_auto_estimada(sale, entra)             # fundido + pausa del 50 %
+                else:
+                    dur = self._duracion_mezcla_para(sale, entra, True)
                 resta = (len(sale.audio) - sale.cursor - sale.loop_desfase) / (sale.sr * max(1e-6, sale.rate_eff))
                 if espera + dur + 4.0 > resta:        # esperar a la frase no deja tiempo: se mezcla ya
                     espera = None

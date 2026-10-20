@@ -1,6 +1,7 @@
 """AutoMix — botón Mezclar (F2), auto-enganche y reproducción."""
 import sys
 import time
+import numpy as np
 from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
 from PySide6.QtCore import QTimer
 from setup.ajustes import fmt_time
@@ -153,10 +154,35 @@ class MezclaMixin:
                 self._mix_pausa_hecha = True
                 self.mix_timer.stop()
                 self._set_status(f"⏸ Mezcla pausada {cruce_auto.PAUSA:g} s en el 50%…")
-                self.mix_pausa_timer.start(max(50, int(cruce_auto.PAUSA * 1000)))
+                self.mix_pausa_timer.start(max(50, int(self._pausa_s() * 1000)))
                 return
 
         self.crossfader.setValue(value)
+
+    def _pausa_s(self):
+        """Duración de la pausa del 50 %. Con ⚙ «Pausa hasta línea de compás»: termina justo en una línea de compás del tema que sale
+        (la 1.ª línea es donde el mezclador pasa el bajo; la pausa termina en esa línea o en una posterior, la más cercana a lo configurado), así
+        el resto del fundido sigue en el compás y no a media frase."""
+        base = float(cruce_auto.PAUSA)
+        if cruce_auto.PAUSA_EN_LINEA < 0.5 or base < 0.5:
+            return base
+        try:
+            sale = self.deck_a if getattr(self, "_cf_dir", "AB") == "AB" else self.deck_b
+            db = self._db_de(sale)
+            if len(db) < 4 or not sale.playing:
+                return base
+            pos = sale.position_virtual_seconds(); rate = max(1e-6, sale.rate_eff)
+            T = (db[db > pos + 0.05] - pos) / rate
+            if len(T) < 2:
+                return base
+            compas = float(np.median(np.diff(db[:64]))) / rate if len(db) > 2 else 2.0
+            t1 = float(T[0])                                        # línea donde se pasa el bajo
+            cand = [float(t) for t in T if t >= max(1.5, t1) and t <= base + 1.5 * compas]      # desde la línea del cambio de bajo en adelante
+            if not cand:
+                return base
+            return max(0.2, min(cand, key=lambda t: abs(t - base)))
+        except Exception:
+            return base
 
     def _punto_cruce_manual(self):
         """Modo Manual: (cruce, inicio de la rampa de B) en posición del crossfader (0..1) con los deslizadores actuales;
