@@ -165,8 +165,8 @@ class AnalizadorBiblioteca(QThread):
             return
 
     def _analizar_paralelo(self, n):
-        from concurrent.futures import ProcessPoolExecutor, TimeoutError as _TO
-        from concurrent.futures.process import BrokenProcessPool
+        from concurrent.futures._base import TimeoutError as _TO          # (imports directos: en Python 3.15 el paquete los carga 'perezosos' y no se pueden llamar)
+        from concurrent.futures.process import ProcessPoolExecutor, BrokenProcessPool
         import multiprocessing
         from setup.analisis import TIMEOUT_ANALISIS, _analizar_archivo, _analizar_clave, _bajar_prioridad
         self._calentar()

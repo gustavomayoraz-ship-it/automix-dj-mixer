@@ -271,7 +271,7 @@ class GlobalMixer:
             return
         self.stream = sd.OutputStream(
             samplerate=self.sr, channels=2, dtype="float32",
-            callback=self._cb, blocksize=self.blocksize, latency=0.12, device=device,
+            callback=self._cb, blocksize=self.blocksize, latency=0.25, device=device,      # 0.25 s de colchón: aguanta trancadas de ~200 ms (cargar un tema) sin el 'rrrr'
             finished_callback=self._al_terminar
         )
         self._stream_cayo = False
