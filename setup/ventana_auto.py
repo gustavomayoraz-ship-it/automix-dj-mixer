@@ -268,17 +268,22 @@ class AutomaticoMixin:
             return None
         return float((sig[0] - pos) / max(1e-6, sale.rate_eff))
 
-    def _disparar_mezcla_auto(self, exacto=False):
+    def _disparar_mezcla_auto(self, exacto=False, manual=False):
         """Punto único de arranque de las mezclas automáticas (auto-enganche y carga automática).
         Con '🥁 En frase' espera al próximo comienzo de frase del tema que suena para arrancar justo ahí."""
+        ya = False
         if getattr(self, "_frase_armada", False):
-            return
+            if not manual:
+                return
+            self._frase_tok = getattr(self, "_frase_tok", 0) + 1      # 2.º clic durante la espera: se cancela y arranca ya
+            self._frase_armada = False
+            ya = True
         if self.mix_timer.isActive() or self.mix_pausa_timer.isActive():
             return
         f = self.crossfader.value()
         sale = self.deck_a if f <= 50 else self.deck_b
         entra = self.deck_b if sale is self.deck_a else self.deck_a
-        if self.chk_armonico.isChecked():              # estricto: solo se engancha un tema compatible
+        if self.chk_armonico.isChecked() and not manual:   # estricto (el botón manual nunca se bloquea): solo se engancha un tema compatible
             ks, ke = self._clave_de(sale), self._clave_de(entra)
             nivel = compat_armonica(ks, ke)
             try:
@@ -299,7 +304,7 @@ class AutomaticoMixin:
         espera = None
         max_espera = float(cruce_auto.ESPERA_FRASE)       # ⚙: al llegar a la marca se espera (como mucho esto) al inicio de la próxima frase
         por_frase = (self.chk_frases.isChecked() and not exacto) or max_espera >= 1.0
-        if por_frase and not self._cruce_simple() and sale.playing and sale.analysis and entra.analysis and entra.audio is not None:
+        if por_frase and not ya and not self._cruce_simple() and sale.playing and sale.analysis and entra.analysis and entra.audio is not None:
             try:
                 grilla_ok = bool(self.biblioteca.frase_ok(sale.path))      # solo si la grilla de compases es firme
             except Exception:
@@ -321,12 +326,16 @@ class AutomaticoMixin:
                 if len(db_e):
                     entra.set_position_seconds(float(db_e[0]))      # el entrante sale desde su primer compás
             self._mix_auto = True
-            self._mix_clicked()
+            self._mix_arrancar()
             return
         self._frase_armada = True
+        tok = getattr(self, "_frase_tok", 0) + 1
+        self._frase_tok = tok
         pa, pb = self.deck_a.path, self.deck_b.path
         self._set_status(f"🥁 Mezcla armada: arranca en la próxima frase ({espera:.1f} s)")
         def _go():
+            if tok != getattr(self, "_frase_tok", 0):
+                return                                  # se canceló (2.º clic)
             self._frase_armada = False
             if (self.deck_a.path, self.deck_b.path) != (pa, pb) or self.mix_timer.isActive() or self.mix_pausa_timer.isActive():
                 return                                  # cambió algo mientras esperaba (mezcla manual, otro tema…)
@@ -335,7 +344,7 @@ class AutomaticoMixin:
                 if len(db_e):
                     entra.set_position_seconds(float(db_e[0]))      # el entrante sale desde su primer compás
             self._mix_auto = True
-            self._mix_clicked()
+            self._mix_arrancar()
         QTimer.singleShot(int(max(0.0, espera - 0.02) * 1000), _go)
 
     def _duracion_mezcla_para(self, sale, entra, auto):
