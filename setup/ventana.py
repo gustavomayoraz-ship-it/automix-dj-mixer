@@ -142,9 +142,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         central = QWidget()
         split.addWidget(central)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1)
-        split.setSizes([470, 1090])
+        split.setSizes([500, 1020])
         split.setChildrenCollapsible(False)
-        panel_lib.setMinimumWidth(340)
+        panel_lib.setMinimumWidth(500)
         root = QVBoxLayout(central)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -402,12 +402,11 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.biblioteca.carga_progreso.connect(lambda h, n: self.lbl_lib.setText(f"📁 Cargando biblioteca… {h}/{n}") if h < n else None)
         self.biblioteca.carga_terminada.connect(self._post_carga_biblioteca)
         self.biblioteca.cargar()                                                     # (en tandas: la ventana se abre enseguida)
-        if leer_config().get("lib_agrupada", False):
-            self.btn_agrupar.setChecked(True); self.biblioteca.set_agrupado(True)
+        self.btn_agrupar.setChecked(True); self.biblioteca.set_agrupado(True)      # siempre se arranca en vista por carpetas (y plegadas: ver _post_carga_biblioteca)
         self._update_cf()
 
         self._esc_actual = 1.0
-        self._ratio_lista = 470.0 / 1560.0
+        self._ratio_lista = 500.0 / 1560.0
         self._esc_timer = QTimer(self)
         self._esc_timer.setSingleShot(True)
         self._esc_timer.timeout.connect(self._escalar_segun_ventana)
@@ -488,6 +487,11 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         try:
             if self.biblioteca.agrupado:
                 self._ordenar_lista()
+                if not getattr(self, "_plegado_inicial", False):         # al abrir el programa las carpetas arrancan contraídas (una sola vez)
+                    self._plegado_inicial = True
+                    self.biblioteca.plegar_todas()
+                    self.btn_plegar.setText(">>")
+                    self.btn_plegar.setToolTip("Expandir todas las carpetas")
         except Exception:
             import traceback; traceback.print_exc()
 
