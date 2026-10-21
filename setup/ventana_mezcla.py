@@ -1,6 +1,9 @@
 """AutoMix — botón Mezclar (F2), auto-enganche y reproducción."""
 import math
+import os
 import sys
+import threading
+import traceback
 import time
 import numpy as np
 from PySide6.QtWidgets import QApplication, QLineEdit, QSpinBox
@@ -282,7 +285,8 @@ class MezclaMixin:
 
     def _fin_audible(self, deck):
         """Segundo en que termina la música del tema (sin el silencio del final). Si no hay silencio final largo,
-        devuelve la duración completa. Se calcula una vez por tema cargado."""
+        devuelve la duración completa. Se calcula una vez por tema cargado, en un hilo aparte (recorrer todo el audio en el hilo
+        de la interfaz congelaba el timeline casi 2 s); mientras tanto devuelve la duración completa."""
         a = deck.audio
         if a is None:
             return 0.0
@@ -291,26 +295,32 @@ class MezclaMixin:
             return c[1]
         sr = max(1, int(deck.sr))
         total = len(a) / sr
-        fin = total
-        try:
-            import numpy as np
-            x = np.abs(a)
-            if x.ndim > 1:
-                x = x.max(axis=1)
-            bloque = max(1, sr // 10)                    # bloques de 0,1 s
-            n = len(x) // bloque
-            if n > 0:
-                pic = x[: n * bloque].reshape(n, bloque).max(axis=1)
-                con = np.nonzero(pic > self.UMBRAL_SILENCIO)[0]
-                ultimo = (int(con[-1]) + 1) * bloque / sr if len(con) else 0.0
-                if total - ultimo >= self.SILENCIO_MIN and ultimo > 5.0:
-                    fin = ultimo + 0.5                   # un resto de cola
-                    log("silencio", f"deck {deck.name}: la música termina en {fmt_time(fin)}; "
-                                    f"los últimos {fmt_time(total - fin)} son silencio")
-        except Exception:
+        if getattr(deck, "_fin_calc", None) is a:
+            return total                                  # ya se está calculando
+        deck._fin_calc = a
+        nombre = deck.name
+
+        def _calcular():
             fin = total
-        deck._fin_cache = (a, fin)
-        return fin
+            try:
+                bloque = max(1, sr // 10)                 # bloques de 0,1 s
+                n = len(a) // bloque
+                if n > 0:
+                    v = a[: n * bloque]
+                    v = v.reshape(n, bloque, -1) if v.ndim > 1 else v.reshape(n, bloque, 1)
+                    pic = np.maximum(v.max(axis=(1, 2)), -v.min(axis=(1, 2)))      # pico por bloque, sin copiar todo el audio
+                    con = np.nonzero(pic > self.UMBRAL_SILENCIO)[0]
+                    ultimo = (int(con[-1]) + 1) * bloque / sr if len(con) else 0.0
+                    if total - ultimo >= self.SILENCIO_MIN and ultimo > 5.0:
+                        fin = ultimo + 0.5                # un resto de cola
+                        log("silencio", f"deck {nombre}: la música termina en {fmt_time(fin)}; "
+                                        f"los últimos {fmt_time(total - fin)} son silencio")
+            except Exception:
+                fin = total
+            deck._fin_cache = (a, fin)
+
+        threading.Thread(target=_calcular, daemon=True, name="fin-audible").start()
+        return total
 
     def _tick_auto_enganche(self):
         try:
@@ -415,7 +425,37 @@ class MezclaMixin:
             self._t_lento = time.monotonic()
             m.cb_max_ms = 0.0
 
+    def _vigia_ui(self):
+        """Vigía de congelamientos: si la interfaz no responde por más de 150 ms, deja en el registro (consola) DÓNDE estaba trabado
+        el programa ([congelado] …). Sirve para encontrar qué causa un tirón del timeline."""
+        if getattr(self, "_vigia_on", False):
+            return
+        self._vigia_on = True
+        self._latido = time.perf_counter()
+        main_id = threading.main_thread().ident
+
+        def _run():
+            ult = 0.0
+            while True:
+                time.sleep(0.03)
+                try:
+                    ahora = time.perf_counter()
+                    dt = ahora - self._latido
+                    if dt > 0.15 and ahora - ult > 0.14:
+                        ult = ahora
+                        fr = sys._current_frames().get(main_id)
+                        pila = traceback.extract_stack(fr)[-7:] if fr is not None else []
+                        txt = " > ".join(f"{os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in pila)
+                        mez = "mezclando" if (self.mix_timer.isActive() or self.mix_pausa_timer.isActive()) else "libre"
+                        print(f"[congelado] interfaz sin responder {dt * 1000:.0f} ms ({mez}) · {txt}")
+                except Exception:
+                    pass
+        threading.Thread(target=_run, daemon=True, name="vigia-ui").start()
+
     def _tick(self):
+        self._latido = time.perf_counter()
+        if not getattr(self, "_vigia_on", False):
+            self._vigia_ui()
         self.deck_a.tick()
         self.deck_b.tick()
         self._vigilar_cortes_audio()
