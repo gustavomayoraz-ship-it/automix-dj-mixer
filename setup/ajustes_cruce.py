@@ -12,6 +12,16 @@ from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
 CLAVE = "ajustes_cruce"
 
 # (clave en cruce_auto, texto, mínimo, máximo, divisor, formato, ayuda)
+# Ajustes que solo tienen efecto con ciertas estrategias (el resto valen siempre, también en Manual): se esconden cuando no sirven
+SOLO_ESTRATEGIA = {"MAN_COMPASES": 2, "ADAPTA_DUR": 2, "PRO_COMPASES": 1,
+                   "MIN_DUR": 0, "DUR_IDEAL": 0, "MAX_DUR": 0, "ENT_MIN": 0, "ENT_MAX": 0, "RB_MIN": 0}
+
+
+def _estrategia_activa():
+    e = cruce_auto.ESTRATEGIA
+    return 2 if e >= 1.5 else (1 if e >= 0.5 else 0)
+
+
 GRUPOS = [
     ("🎛 Estrategia del cruce Auto", [
         ("ESTRATEGIA", "Estrategia (0 clásica · 1 Pro · 2 como mi manual)", 0, 2, 1, "{:.0f}",
@@ -43,7 +53,7 @@ GRUPOS = [
         ("ZONA_ACEL", "Aceleración hasta la mitad", 10, 100, 100, "{:.0%}",
          "Después del cruce el crossfader sigue lento y va acelerando de a poco.\n100 % = recién recupera la velocidad al llegar al 50 % · menos = la recupera antes de la mitad."),
     ]),
-    ("🤖 Cruce Auto", [
+    ("🤖 Cruce Auto clásico (solo estrategia 0)", [
         ("MIN_DUR", "Duración mínima", 4, 40, 1, "{:.0f} s",
          "El fundido del Auto dura al menos esto (sin contar la pausa del medio)."),
         ("DUR_IDEAL", "Duración preferida", 6, 40, 1, "{:.0f} s",
@@ -229,6 +239,8 @@ class AjustesCruce(QDialog):
         self.vista = VistaRitmo(ventana)
         lay.addWidget(self.vista)
         self._sl = {}
+        self._filas_w = {}                              # clave -> (etiqueta, deslizador, valor)
+        self._cajas = []                                # (caja, [claves])
         for titulo, filas in GRUPOS:
             caja = QGroupBox(titulo)
             gl = QGridLayout(caja)
@@ -243,6 +255,8 @@ class AjustesCruce(QDialog):
                 gl.addWidget(lbl, r, 0); gl.addWidget(sl, r, 1); gl.addWidget(val, r, 2)
                 gl.setColumnStretch(1, 1)
                 self._sl[k] = (sl, val, div, fmt)
+                self._filas_w[k] = (lbl, sl, val)
+            self._cajas.append((caja, [f[0] for f in filas]))
             lay.addWidget(caja)
         fila = QHBoxLayout()
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
@@ -251,10 +265,24 @@ class AjustesCruce(QDialog):
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         fila.addWidget(b_def); fila.addStretch(1); fila.addWidget(b_cer)
         lay.addLayout(fila)
+        self._visibles()
+
+    def _visibles(self):
+        """Esconde los ajustes que no sirven con la estrategia elegida (y los grupos que quedan vacíos)."""
+        e = _estrategia_activa()
+        for k, ws in self._filas_w.items():
+            ok = SOLO_ESTRATEGIA.get(k, e) == e
+            for w in ws:
+                w.setVisible(ok)
+        for caja, claves in self._cajas:
+            caja.setVisible(any(SOLO_ESTRATEGIA.get(k, e) == e for k in claves))
+        self.adjustSize()
 
     def _cambio(self, k, x, div, fmt, val):
         val.setText(fmt.format(x / div))
         cruce_auto.aplicar({k: x / div})
+        if k == "ESTRATEGIA":
+            self._visibles()
         if k in ("ESTRATEGIA", "MAN_COMPASES"):
             try:
                 self.v.spin_mix.setEnabled(self.v._spin_mix_activo()); self.v.btn_mix.setText(self.v._texto_btn_mix())
@@ -269,4 +297,5 @@ class AjustesCruce(QDialog):
             val.setText(fmt.format(sl.value() / div))
         cruce_auto.aplicar(cruce_auto.DEFECTOS)
         guardar()
+        self._visibles()
         self.vista.update()
