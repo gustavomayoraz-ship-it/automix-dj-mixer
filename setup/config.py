@@ -45,9 +45,9 @@ DEF_PUNTO_S = 0.5      # por bandas: en qué momento de la mezcla se traspasa el
 
 DEF_MARCA = 0.92      # marca de auto-enganche: SIEMPRE visible (por defecto al 92 % del tema)
 # Valores por defecto de la primera vez y del botón «Valores por defecto» (los controles de abajo; deslizadores en sus unidades)
-DEF_MB_INT = 40       # intensidad multibanda (%)
-DEF_MB_LIM = 6        # máx. corrección (dB)
-DEF_MB_VEL = 20       # velocidad (décimas de dB/s: 20 = 2,0 dB/s)
+DEF_MB_INT = 10       # intensidad multibanda (%)
+DEF_MB_LIM = 2        # máx. corrección (dB)
+DEF_MB_VEL = 19       # velocidad (décimas de dB/s: 20 = 2,0 dB/s)
 DEF_GOLPE = 4         # golpe 43 Hz (%)
 DEF_MEDIOS = -20      # medios (décimas de dB: -20 = -2,0 dB)
 DEF_AGUDOS = 50       # agudos (décimas de dB: 50 = +5,0 dB)
