@@ -329,6 +329,7 @@ class AutomaticoMixin:
             self._mix_arrancar()
             return
         self._frase_armada = True
+        self._frase_t_fin = time.monotonic() + espera
         tok = getattr(self, "_frase_tok", 0) + 1
         self._frase_tok = tok
         pa, pb = self.deck_a.path, self.deck_b.path

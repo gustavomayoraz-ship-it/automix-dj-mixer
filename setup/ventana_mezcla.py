@@ -1,4 +1,5 @@
 """AutoMix — botón Mezclar (F2), auto-enganche y reproducción."""
+import math
 import sys
 import time
 import numpy as np
@@ -467,7 +468,30 @@ class MezclaMixin:
                 d._glow_paso = paso
                 d.set_brillo(paso / 10.0)
         mezclando = self.mix_timer.isActive() or self.mix_pausa_timer.isActive()
-        if mezclando and self.mix_steps_total > 0:
+        frase = bool(getattr(self, "_frase_armada", False))
+        if not mezclando and (frase or getattr(self, "_mix_esperando", False)):
+            # esperando el enganche (inicio de frase o análisis): el botón late entre ámbar y celeste y cuenta los segundos
+            t = time.monotonic()
+            if frase:
+                texto = f"🥁 Esperando la frase…  {max(0.0, getattr(self, '_frase_t_fin', t) - t):.1f} s"
+            else:
+                texto = "⏳ Esperando el análisis…"
+            if texto != getattr(self, "_mix_pulso_texto", None):
+                self._mix_pulso_texto = texto
+                self.btn_mix.setText(texto)
+            fase = int(round((0.5 + 0.5 * math.sin(t * 2 * math.pi / 0.8)) * 8))
+            if fase != getattr(self, "_mix_pulso_fase", None):
+                self._mix_pulso_fase = fase
+                k = fase / 8.0
+                def _mezcla(a, b):
+                    return "#%02x%02x%02x" % tuple(int(round(x + (y - x) * k)) for x, y in zip(a, b))
+                c1 = _mezcla((255, 216, 74), (92, 240, 255))      # ámbar → celeste (arriba)
+                c2 = _mezcla((255, 154, 0), (0, 168, 216))        # (abajo)
+                self.btn_mix.setStyleSheet(
+                    "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 %s, stop:1 %s); color:#10161a; font-weight:bold;"
+                    " border:1px solid #ffffff; border-radius:11px; }" % (c1, c2))
+            self._mix_prog_clave = -1
+        elif mezclando and self.mix_steps_total > 0:
             pct = max(0, min(100, int(round(100.0 * self.mix_steps_done / self.mix_steps_total))))
             clave = pct // 2
             if clave != getattr(self, "_mix_prog_clave", None):
@@ -479,5 +503,6 @@ class MezclaMixin:
                 self.btn_mix.setText(f"⏳ Mezclando…  {pct} %")
         elif getattr(self, "_mix_prog_clave", None) is not None:
             self._mix_prog_clave = None
+            self._mix_pulso_texto = self._mix_pulso_fase = None
             self.btn_mix.setStyleSheet(self._QSS_MIX_BASE)
             self.btn_mix.setText(self._texto_btn_mix())
