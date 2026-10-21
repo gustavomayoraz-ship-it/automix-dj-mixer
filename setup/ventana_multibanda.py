@@ -134,8 +134,8 @@ class MultibandaMixin:
         self._fila_herr.addWidget(self.marco_mezcla, 4)
         # barra de iconos (arriba de las tarjetas): teclas globales a la izquierda de 🖥 ↖ ⚙
         self.chk_f2g = QCheckBox("⌨ Teclas globales")
-        self.chk_f2g.setToolTip("Con esto activado, F2 (mezclar) y + / − del teclado numérico (volumen) funcionan aunque estés en otra ventana o programa (mientras AutoMix esté abierto).\n"
-                                "Mientras esté activado, esas teclas no llegan a los otros programas (por ejemplo, renombrar en el Explorador).")
+        self.chk_f2g.setToolTip("Con esto activado, F2 (mezclar) y las flechas ↑ / ↓ (volumen) funcionan aunque estés en otra ventana o programa (mientras AutoMix esté abierto).\n"
+                                "Mientras esté activado, F2 y las flechas ↑ / ↓ no llegan a los otros programas (por ejemplo, no mueven el cursor ni las listas fuera de AutoMix).")
         self.chk_f2g.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.f2_global = TeclaGlobalF2(self._mix_clicked)
         self.vol_global = TeclasGlobalesVolumen(self._vol_tecla)

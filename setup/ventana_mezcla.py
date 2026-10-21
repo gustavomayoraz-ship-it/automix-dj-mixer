@@ -30,7 +30,7 @@ class MezclaMixin:
             except Exception: pass
 
     def _vol_tecla(self, delta):
-        """+ / − del teclado numérico: sube o baja el volumen general de a 2 %."""
+        """Flechas ↑ / ↓: suben o bajan el volumen general de a 2 %."""
         try:
             self.sld_master.setValue(max(0, min(100, self.sld_master.value() + 2 * delta)))
             self._set_status(f"🔊 Volumen {self.sld_master.value()}%")
@@ -38,6 +38,14 @@ class MezclaMixin:
             pass
 
     def _mix_clicked(self):
+        """Botón 🎬 Mezclar / F2: hace EXACTAMENTE lo mismo que el auto-enganche al llegar a la marca roja
+        (mismo diseño de cruce, entrante desde su primer compás, espera al inicio de frase). Un segundo clic en la espera arranca ya."""
+        if self.mix_pausa_timer.isActive() or self.mix_timer.isActive():
+            self._mix_arrancar()                     # en la pausa del 50 %: seguir ya · ya mezclando: no reiniciar
+            return
+        self._disparar_mezcla_auto(exacto=True, manual=True)
+
+    def _mix_arrancar(self):
         if self.mix_pausa_timer.isActive():          # en la pausa del 50 %: seguir ya, sin invertir el sentido
             self.mix_pausa_timer.stop()
             self._reanudar_mix()
@@ -64,7 +72,7 @@ class MezclaMixin:
                     self._mix_esperando = True
                 self._mix_espera_n = n + 1
                 self._set_status(f"⏳ Esperando el análisis del Deck {entra.name} para mezclar emparejado…")
-                QTimer.singleShot(250, self._mix_clicked)
+                QTimer.singleShot(250, self._mix_arrancar)
                 return
         self._mix_espera_n = 0
         self._mix_esperando = False

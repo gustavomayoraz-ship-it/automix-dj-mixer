@@ -1,4 +1,4 @@
-"""AutoMix — teclas globales F2 y + / − del teclado numérico (Windows)."""
+"""AutoMix — teclas globales F2 y flechas ↑ / ↓ (volumen) (Windows)."""
 import sys
 from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QTimer
 
@@ -54,13 +54,13 @@ class TeclaGlobalF2(QAbstractNativeEventFilter):
 
 
 class TeclasGlobalesVolumen(QAbstractNativeEventFilter):
-    """+ y − del teclado numérico como teclas "globales": suben/bajan el volumen aunque el programa esté en segundo plano.
+    """Flechas ↑ (sube) y ↓ (baja) como teclas "globales": suben/bajan el volumen aunque el programa esté en segundo plano.
     Se dejan repetir: mantenerlas apretadas sigue moviendo el volumen."""
     ID_MAS = 0xA7F3
     ID_MENOS = 0xA7F4
     WM_HOTKEY = 0x0312
-    VK_ADD = 0x6B
-    VK_SUBTRACT = 0x6D
+    VK_ADD = 0x26          # flecha arriba (sube el volumen)
+    VK_SUBTRACT = 0x28     # flecha abajo (baja el volumen)
 
     def __init__(self, accion):
         super().__init__()
