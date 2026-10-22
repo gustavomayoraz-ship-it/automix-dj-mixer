@@ -12,7 +12,7 @@ from setup.dsp import AutoMejora, CruceLR4, LimitadorSuave, RealceGrave, TonoAgu
 
 
 class GrabadorMezcla:
-    """Graba a un .wav (16 bits) exactamente lo que sale por los parlantes. El callback de audio solo copia el bloque
+    """Graba a un .mp3 (320 kbps) o .wav (16 bits) exactamente lo que sale por los parlantes. El callback de audio solo copia el bloque
     a un buffer PRE-ALOCADO del pool y lo encola; un hilo aparte escribe en disco. NO aloca memoria en el callback."""
     POOL = 24                     # buffers pre-alocados (24 × 8 KB ≈ 192 KB)
 
@@ -36,16 +36,32 @@ class GrabadorMezcla:
         if len(self._pool) < self.POOL and buf.shape == (self._blocksize, 2):
             self._pool.append(buf)
 
-    def iniciar(self, carpeta):
+    def _abrir_archivo(self, base, formato):
+        """Abre el archivo de la grabación. MP3 = 320 kbps constantes (calidad máxima); WAV = 16 bits sin pérdida. Si el MP3 no se puede
+        (libsndfile viejo) cae a WAV. Devuelve (SoundFile, ruta real)."""
+        if str(formato).lower() == "mp3":
+            ruta = base.with_suffix(".mp3")
+            try:
+                f = sf.SoundFile(str(ruta), mode="w", samplerate=self.sr, channels=2, format="MP3",
+                                 compression_level=0.0, bitrate_mode="CONSTANT")
+                self.formato_real = "mp3"
+                return f, ruta
+            except Exception as e:
+                print(f"[grabación] no se puede grabar MP3 ({e}): se graba en WAV")
+        ruta = base.with_suffix(".wav")
+        self.formato_real = "wav"
+        return sf.SoundFile(str(ruta), mode="w", samplerate=self.sr, channels=2, subtype="PCM_16"), ruta
+
+    def iniciar(self, carpeta, formato="mp3"):
         carpeta = Path(carpeta); carpeta.mkdir(parents=True, exist_ok=True)
-        self.ruta = carpeta / time.strftime("AutoMix_%Y-%m-%d_%H-%M-%S.wav")
+        base = carpeta / time.strftime("AutoMix_%Y-%m-%d_%H-%M-%S")
         self.muestras = 0; self.perdidos = 0; self._error = None
         while not self._q.empty():
             try: self._q.get_nowait()
             except Exception: break
         # pool limpio (todos los buffers vuelven)
         self._pool = [np.empty((self._blocksize, 2), dtype=np.float32) for _ in range(self.POOL)]
-        archivo = sf.SoundFile(str(self.ruta), mode="w", samplerate=self.sr, channels=2, subtype="PCM_16")
+        archivo, self.ruta = self._abrir_archivo(base, formato)
         self._hilo = threading.Thread(target=self._escribir, args=(archivo,), daemon=True)
         self.activo = True
         self._hilo.start()
