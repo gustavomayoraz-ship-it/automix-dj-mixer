@@ -51,6 +51,8 @@ class EscalaMixin:
             pass
 
     def _volver_al_minimo(self):
+        if getattr(self, "_en_esquina", False):        # lo está acomodando el botón ↖: que no la centre en el medio del camino
+            return
         log("ventana", "restaurada: vuelve al tamaño mínimo")
         self._aplicar_escala(ESC_MIN)                  # el mínimo depende de la escala: primero la de arranque
         self._ir_al_minimo()
@@ -67,14 +69,14 @@ class EscalaMixin:
         log("ventana", "botón ↖: tamaño mínimo en la esquina superior izquierda")
         self._gen_esquina = getattr(self, "_gen_esquina", 0) + 1
         gen = self._gen_esquina
+        self._en_esquina = True
+        QTimer.singleShot(1200, lambda: setattr(self, "_en_esquina", False))
         if self.isMaximized() or self.isFullScreen():
-            try:                                       # la geometría de "restaurar" pasa a ser la de la esquina: al salir de maximizada no se ve el paso por el centro
-                _ag = (self.screen() or QApplication.primaryScreen()).availableGeometry()
-                _mh = self.minimumSizeHint()
-                self.setGeometry(_ag.left() + 4, _ag.top() + 4, _mh.width(), _mh.height())
-            except Exception:
-                pass
+            # No se toca la geometría mientras está maximizada (Qt le quita la marca y Windows no: después no deja estirar los bordes).
+            # Se restaura con la ventana invisible, se acomoda en la esquina y recién ahí se muestra: sin pasar a la vista por el centro.
+            self.setWindowOpacity(0.0)
             self.showNormal()                          # el cambio de estado lo procesa Qt; después se acomoda
+            QTimer.singleShot(450, lambda: self.setWindowOpacity(1.0))
         def _pasada():
             if gen != self._gen_esquina:               # se apretó otra vez: manda la pasada nueva
                 return
