@@ -68,6 +68,12 @@ class EscalaMixin:
         self._gen_esquina = getattr(self, "_gen_esquina", 0) + 1
         gen = self._gen_esquina
         if self.isMaximized() or self.isFullScreen():
+            try:                                       # la geometría de "restaurar" pasa a ser la de la esquina: al salir de maximizada no se ve el paso por el centro
+                _ag = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+                _mh = self.minimumSizeHint()
+                self.setGeometry(_ag.left() + 4, _ag.top() + 4, _mh.width(), _mh.height())
+            except Exception:
+                pass
             self.showNormal()                          # el cambio de estado lo procesa Qt; después se acomoda
         def _pasada():
             if gen != self._gen_esquina:               # se apretó otra vez: manda la pasada nueva

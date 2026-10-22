@@ -445,7 +445,12 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.ESC_BASE_W = mh.width() / ESC_MIN * 1.05    # +5 % de holgura: el mínimo no crece exacto con la escala
         self.ESC_BASE_H = mh.height() / ESC_MIN * 1.05
         self.resize(mh)
-        QTimer.singleShot(0, self._ir_al_minimo)
+        try:                                                  # nace ya en la esquina superior izquierda (antes de mostrarse): sin salto desde el centro
+            _ag = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+            self.move(_ag.left() + 4, _ag.top() + 4)
+        except Exception:
+            pass
+        QTimer.singleShot(0, self._a_la_esquina)
 
         self.biblioteca.nuevos.connect(lambda: QTimer.singleShot(1500, self._auto_analizar))
         self._ordenar_lista()                                 # al abrir: lista ordenada (cadena armónica/frase o, si no, por BPM)
