@@ -327,7 +327,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         if self.btn_auto_rej.isChecked():
             self._t_auto_rej.start()
         self.lbl_rej = QLabel(""); self.lbl_rej.setWordWrap(True); self.lbl_rej.setStyleSheet("color:#9fe3c6; font-size:12px;")
-        izq.addWidget(self.lbl_rej)               # lo que encontró y corrigió el botón Auto
+        izq.addWidget(self.lbl_rej)               # (oculto: ya no se muestra lo que encontró el botón Auto; queda en la consola)
+        self.lbl_rej.hide()
         self.btn_esquina = QPushButton("↖")
         self.btn_esquina.setFixedSize(50, 34)
         self.btn_esquina.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
