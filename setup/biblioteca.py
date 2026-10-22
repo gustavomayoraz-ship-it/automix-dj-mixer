@@ -713,12 +713,8 @@ class Biblioteca(QListWidget):
                 clave = os.path.normcase(os.path.abspath(p))
                 if clave in self._rutas:
                     continue
-                f = self._firma(p, st.st_size)
-                if f in c["firmas"]:
-                    c["dup"] += 1
-                    log("biblioteca", f"duplicado omitido: {os.path.basename(p)}")
-                    continue
-                c["firmas"].add(f)
+                # (la lista guardada se carga tal cual: si agregaste una copia a propósito -«Agregar las copias igual»- tiene que seguir ahí
+                #  al reiniciar; los repetidos solo se filtran al ARRASTRAR temas nuevos)
                 self._rutas.add(clave)
                 self.addItem(self._crear_item(p, clave))
                 c["n"] += 1
