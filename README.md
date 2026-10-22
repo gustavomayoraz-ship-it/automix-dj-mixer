@@ -6,16 +6,33 @@
 
 Palabras clave: DJ, auto DJ, automix, mezcla automática, crossfade, beatmatching, BPM, mezclador de dos decks, Python, PySide6, librosa.
 
-## Características
-- Dos decks con crossfader, mezcla automática y auto-enganche con marca roja ajustable (la mezcla arranca exactamente en la marca)
-- Análisis de BPM y tonalidad de la biblioteca, con lista inteligente que se ordena sola mientras analiza (BPM + clave delante del nombre)
-- **Cruce por bandas**: el tema entrante entra al 100 % y los graves se traspasan aparte, en la línea del compás (filtro Linkwitz-Riley a 150 Hz), para que el enganche sea imperceptible
-- **Cruce Auto / Manual**: en Manual el cruce usa los deslizadores (A, B, B sube en, A termina en, Forma de A y Bajo) y se puede copiar el último cruce Auto para dejarlo fijo; en Auto el programa analiza cada par de temas (voz o melodía, bajo, compases y frases) y diseña su propio cruce: duración en compases, cuándo entra el que viene, cómo se va el que sale y en qué compás se traspasa el bajo
-- **Fundido para temas incompatibles**: cuando los BPM no son compatibles, en vez de forzar un cruce el tema que suena baja de volumen y entra el siguiente; la forma del fundido se dibuja arrastrando puntos en ⚙ Ajustes
-- **Grabación de la mezcla** en MP3 (320 kbps) o WAV sin pérdida, a elección, con cierre suave (rampa de 15 s y 3 s de silencio)
-- **45 efectos de sonido** generados por código (aplausos, ovación, sirenas, risers, impactos, scratch, campanas, láser y más) para sumar encima de la mezcla
-- Ecualizador inteligente y multibanda automáticos, con sliders de golpe 43 Hz, medios y agudos
-- Limitador por ganancia (sin recorte de la onda) y control de volumen general
+## Qué lo hace diferente
+AutoMix no solo cambia de tema: **escucha cada par de canciones y decide cómo mezclarlas**, como lo haría un DJ con oído, y lo hace sin que toques nada.
+
+### 🤖 Mezcla inteligente
+- **Cruce Auto que diseña cada mezcla a medida**: analiza voz o melodía, bajo, compases y frases de los dos temas y define la duración en compases, cuándo entra el que viene, cómo se va el que sale y en qué compás se traspasa el bajo. Cada par de temas recibe un cruce distinto.
+- **Cruce por bandas con traspaso de graves en el compás**: el tema entrante entra al 100 % y el bombo y el bajo (menos de 150 Hz, filtro Linkwitz-Riley) pasan de un tema al otro en la línea del compás, sin empaste de graves ni choques de bombos.
+- **Auto-DJ de punta a punta**: con una marca roja ajustable sobre el progreso del tema sonando, la mezcla arranca exactamente en ese punto; también se dispara a mano con F2.
+- **Fundido elegante para temas incompatibles**: si los BPM no son compatibles, en vez de forzar un cruce el tema que suena baja de volumen y entra el siguiente. La forma de ese fundido se dibuja arrastrando puntos con el mouse.
+- **Cruce Manual a tu gusto**: la forma del cruce A/B se ve dibujada en vivo y se ajusta con deslizadores (A, B, B sube en, A termina en, Forma de A y Bajo); con un clic copiás el último cruce que hizo el Auto para dejarlo fijo.
+
+### 🎯 Análisis automático de la biblioteca
+- **BPM y tonalidad (rueda de Camelot)** de cada tema, con la lista ordenándose sola mientras analiza: por BPM, por tono o por carpetas, o en cadena armónica para que los temas encajen entre sí.
+- **Auto-grilla**: corrige los BPM doble/mitad respecto del otro tema y centra la grilla de compases sobre los bombos, sin arrastrar nada a mano. **AutoGain** que empareja el volumen de cada tema al cargarlo.
+- **Sincronía de dos decks**: tempo compartido y fase emparejada con estiramiento de tiempo **WSOLA**, que cambia la velocidad sin cambiar el tono.
+
+### 🎛 Sonido profesional
+- **Ecualizador multibanda inteligente** (graves, medios y agudos) con nivel, umbral, ratio, reducción y compensación por banda, y controles de golpe a 43 Hz, medios y agudos.
+- **Compensación de nivel** cuando suenan los dos temas a la vez, y **limitador por ganancia** que evita el recorte de la onda.
+- **Auriculares con preescucha (PFL)**: escuchás cualquiera de los dos decks por otra placa de sonido sin mandarlo a los parlantes.
+- **Loops de 1/4, 1/2, 1 o 2 compases** pegados a la grilla, para el clásico "chiqui-chiqui" mientras entra el otro tema.
+
+### 🎬 Para el directo
+- **Timeline en vivo** con la forma de onda de los dos temas, playhead fijo al centro, marcas de compás y zoom.
+- **45 efectos de sonido generados por código** (aplausos, ovación, sirenas, risers, impactos, scratch, campanas, láser y más) que se suman encima de la mezcla, con su propio volumen.
+- **Grabación de la mezcla** en MP3 (320 kbps) o WAV sin pérdida, con cierre suave (rampa de 15 s y 3 s de silencio) para que no corte en seco.
+- **Teclas globales** (F2 mezcla, flechas para el volumen) que funcionan aunque el programa esté en segundo plano.
+- **Interfaz que se adapta a la pantalla**: se escala sola con el tamaño de la ventana y arranca ordenada en la esquina.
 
 ## Instalación
     pip install -r requirements.txt
