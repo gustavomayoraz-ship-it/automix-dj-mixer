@@ -7,7 +7,7 @@ from setup.base import _log_diferido
 from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MAN_COMP, DEF_MAN_RATIO, DEF_MAN_UMBRAL, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, guardar_config, leer_config
 from setup.teclas import TeclaGlobalF2, TeclasGlobalesVolumen
 from setup.tema import TEMA
-from setup.widgets import EtiquetaAncha, EtiquetaElidida, VuMeter, qss_marco
+from setup.widgets import EtiquetaAncha, EtiquetaElidida, BotonConfig, VuMeter, qss_marco
 
 
 class MultibandaMixin:
@@ -37,7 +37,7 @@ class MultibandaMixin:
         self.lbl_mb = EtiquetaAncha([f"{v} %" for v in range(0, 101)], f"{self.sld_mb.value()} %")
         self.lbl_mb.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         fila.addWidget(self.sld_mb, 1); fila.addWidget(self.lbl_mb); fila.addStretch(1)
-        self.btn_mb_ajustes = QPushButton("⚙ Ajustes")
+        self.btn_mb_ajustes = BotonConfig("⚙ Ajustes")
         self.btn_mb_ajustes.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_mb_ajustes.setToolTip("Nivel, umbral, ratio, reducción y compensación de cada banda (y pasar a manual)")
         fila.addWidget(self.btn_mb_ajustes)
@@ -129,7 +129,7 @@ class MultibandaMixin:
         self.lbl_dur.setFixedHeight(36)
         self.btn_mix.setMinimumWidth(0)
         self.btn_mix.setMinimumHeight(38); self.btn_mix.setMaximumHeight(16777215)
-        self.btn_mix.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.btn_mix.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)      # Ignored: el largo del texto (que cambia entre Manual y Auto) no ensancha la tarjeta ni mueve el resto
         col_mix.addWidget(self.btn_mix, 1)
         self._fila_herr.addWidget(self.marco_mezcla, 1, 1)
         # barra de iconos (arriba de las tarjetas): teclas globales a la izquierda de 🖥 ↖ ⚙
@@ -145,12 +145,11 @@ class MultibandaMixin:
         self.chk_f2g.toggled.connect(self._f2_global_cambio)
         self._f2_global_cambio(self.chk_f2g.isChecked(), guardar=False)
         f_dur = self._fila_duracion
-        f_dur.addStretch(1)
         f_dur.addWidget(self.lbl_dur)             # Duración (s): en la misma línea que las teclas globales
         f_dur.addWidget(self.spin_mix)
-        f_dur.addSpacing(14)
+        f_dur.addStretch(1)                       # los tres grupos (duración · teclas globales · iconos) quedan repartidos en el ancho, sin apretarse
         f_dur.addWidget(self.chk_f2g)
-        f_dur.addSpacing(10)
+        f_dur.addStretch(1)
         f_dur.addSpacing(0)                       # (marcador: los botones 🖥 ↖ ⚙ se insertan antes de este último elemento)
         self._f_dur = f_dur
         f_vol = QHBoxLayout(); f_vol.addWidget(QLabel("🔊 Volumen")); f_vol.addWidget(self.sld_master, 1); f_vol.addWidget(self.lbl_master)

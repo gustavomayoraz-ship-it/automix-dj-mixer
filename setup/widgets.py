@@ -1,7 +1,8 @@
 """AutoMix — widgets chicos reutilizables (logo, vúmetro, etiquetas)."""
 import math
+import time
 from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QWidget
 from PySide6.QtCore import QPointF, QRectF, QSize, QTimer, Qt, Signal
 from setup.ajustes import AJ, FUENTE_BOOST
 from setup.tema import TEMA, _rgba
@@ -303,3 +304,88 @@ def qss_marco(selector, color, titulo=True):
     if titulo:
         q += f" {selector}::title {{ subcontrol-origin:margin; subcontrol-position:top left; left:14px; padding:0 8px; color:{color}; font-weight:bold; }}"
     return q
+
+
+# colores por los que van rotando los botones de ajustes (⚙): amarillo, verde, rojo, violeta -> (arriba, abajo, borde, texto)
+CICLO_CONFIG = (("#ffe36a", "#e0a800", "#fff0a8", "#2a1f00"),
+                ("#6ee7a0", "#1f9d55", "#c5f7da", "#04210f"),
+                ("#ff7a86", "#d62839", "#ffc2c8", "#ffffff"),
+                ("#b794ff", "#6d3fd6", "#e0d2ff", "#ffffff"))
+
+
+def qss_boton_config(fuente="", relleno="0px", paso=0):
+    """Estilo de los botones de ajustes (los ⚙): con borde y color vivo, para que se note que son botones especiales de configuración.
+    `paso` elige el color del ciclo (amarillo, verde, rojo, violeta)."""
+    c1, c2, cb, ct = CICLO_CONFIG[paso % len(CICLO_CONFIG)]
+    return (f"QPushButton {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {c1}, stop:1 {c2}); color:{ct}; font-weight:bold;"
+            f" border:1px solid {cb}; border-radius:9px; padding:{relleno}; {fuente} }}"
+            f"QPushButton:hover {{ border:2px solid #ffffff; }}"
+            f"QPushButton:pressed {{ padding-top:2px; }}")
+
+
+class BotonConfig(QPushButton):
+    """Botón de ajustes (⚙) animado: un degradé de colores que fluye despacio por todo el botón, con un destello que lo cruza cada tanto.
+    Todos los botones de este tipo comparten el mismo reloj (se ven sincronizados) y se redibujan ~25 veces por segundo."""
+    _vivos = []
+    _reloj = None
+    CICLO_S = 6.0                                   # tarda esto en dar una vuelta completa por los colores
+    DESTELLO_S = 3.2                                # cada cuánto pasa el destello
+
+    def __init__(self, texto, px=0):
+        super().__init__(texto)
+        self._px = px
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        f = QFont(self.font()); f.setBold(True)
+        if px:
+            f.setPixelSize(px)
+        self.setFont(f)
+        BotonConfig._vivos.append(self)
+        if BotonConfig._reloj is None:
+            BotonConfig._reloj = QTimer(); BotonConfig._reloj.setInterval(40); BotonConfig._reloj.timeout.connect(BotonConfig._latido)
+            BotonConfig._reloj.start()
+
+    @staticmethod
+    def _latido():
+        for b in list(BotonConfig._vivos):
+            try:
+                if b.isVisible():
+                    b.update()
+            except RuntimeError:
+                BotonConfig._vivos.remove(b)
+
+    def sizeHint(self):
+        sh = super().sizeHint()
+        return QSize(sh.width() + 22, max(sh.height(), 30))
+
+    def paintEvent(self, ev):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        t = time.monotonic()
+        w, h = float(self.width()), float(self.height())
+        r = QRectF(1.5, 1.5, w - 3.0, h - 3.0)
+        ruta = QPainterPath(); ruta.addRoundedRect(r, 9, 9)
+        desp = (t / self.CICLO_S) % 1.0
+        g = QLinearGradient(0, 0, w, h * 0.6)                                   # los colores recorren el botón en diagonal y se renuevan sin cortes
+        n = 7
+        for i in range(n + 1):
+            pos = i / n
+            tono = (desp + pos * 0.55) % 1.0
+            g.setColorAt(pos, QColor.fromHsvF(tono, 0.58, 1.0))
+        p.fillPath(ruta, QBrush(g))
+        sombra = QLinearGradient(0, r.top(), 0, r.bottom())                     # volumen: brillo arriba, sombra abajo
+        sombra.setColorAt(0.0, QColor(255, 255, 255, 95)); sombra.setColorAt(0.5, QColor(255, 255, 255, 0)); sombra.setColorAt(1.0, QColor(0, 0, 0, 70))
+        p.fillPath(ruta, QBrush(sombra))
+        ciclo = (t % self.DESTELLO_S) / self.DESTELLO_S                         # destello que cruza el botón de izquierda a derecha
+        if ciclo < 0.35:
+            x = -0.3 * w + (ciclo / 0.35) * 1.6 * w
+            d = QLinearGradient(x - 0.18 * w, 0, x + 0.18 * w, h * 0.5)
+            d.setColorAt(0.0, QColor(255, 255, 255, 0)); d.setColorAt(0.5, QColor(255, 255, 255, 150)); d.setColorAt(1.0, QColor(255, 255, 255, 0))
+            p.save(); p.setClipPath(ruta); p.fillPath(ruta, QBrush(d)); p.restore()
+        borde = QColor(255, 255, 255, 235 if self.underMouse() else 150)
+        p.setPen(QPen(borde, 2.2 if self.underMouse() else 1.3)); p.setBrush(Qt.BrushStyle.NoBrush); p.drawPath(ruta)
+        p.setFont(self.font())
+        rt = r.translated(0, 1.0 if self.isDown() else 0.0)
+        p.setPen(QColor(255, 255, 255, 120)); p.drawText(rt.translated(0, 1), int(Qt.AlignmentFlag.AlignCenter), self.text())    # grabado: sombra clara debajo del texto
+        p.setPen(QColor("#1d1230")); p.drawText(rt, int(Qt.AlignmentFlag.AlignCenter), self.text())
+        p.end()

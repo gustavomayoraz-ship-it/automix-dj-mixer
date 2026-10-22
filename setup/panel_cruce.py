@@ -93,6 +93,15 @@ class GraficoCruce(QWidget):
 
 
 
+def _qss_boton(c1, c2, borde, texto, c1h=None, c2h=None):
+    """Botón con degradé de color propio (para que no se pierdan con el fondo azul del panel)."""
+    c1h = c1h or c1; c2h = c2h or c2
+    return (f"QPushButton {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {c1}, stop:1 {c2}); color:{texto}; font-weight:bold;"
+            f" border:1px solid {borde}; border-radius:9px; padding:5px 6px; }}"
+            f"QPushButton:hover {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {c1h}, stop:1 {c2h}); border:2px solid #ffffff; }}"
+            f"QPushButton:pressed {{ padding-top:7px; }}")
+
+
 class PanelCruce(QFrame):
     def __init__(self, ventana):
         super().__init__()
@@ -131,6 +140,7 @@ class PanelCruce(QFrame):
                                         "En qué punto de la mezcla termina de irse A. 100 % = automático (baja hasta el final). Menos = A se va antes y los dos dejan de sonar juntos antes.")
         self.sl_g, self.lv_g = fila_g("Forma de A:", COLOR_DECK_A, 10, 25, round(ventana.gamma_a * 10),
                                       "Forma de la caída de A. 1,0 = la curva de siempre · más alto = A achica sus medios y agudos antes (útil cuando las voces se pisan).")
+        self.sl_s, self.lv_s = fila("Bajo (cambia):", TEMA["verde"], ventana.punto_s, "Momento de la mezcla en que el bajo pasa del tema que sale al que entra (en la línea de compás más próxima). 0 % = el nuevo trae su bajo desde el principio · 95 % = el viejo mantiene el bajo casi hasta el final.")
         self.chk_bandas = QCheckBox("🎛 Por bandas")
         self.chk_bandas.setToolTip("Medios y agudos se cruzan con las curvas de arriba; el BAJO (bombo y bajo, <150 Hz) es de uno solo a la vez\ny se traspasa en la línea del compás, sin cortes ni empaste. Sin tilde: el cruce clásico por volumen.")
         self.chk_bandas.setChecked(ventana.cruce_bandas)
@@ -142,7 +152,9 @@ class PanelCruce(QFrame):
         lay.addWidget(self.chk_comp)
         self.btn_modo = QPushButton()
         self.btn_modo.setCheckable(True)
-        self.btn_modo.setStyleSheet("QPushButton:checked { background:#1f8a4c; color:white; font-weight:bold; }")
+        self.btn_modo.setStyleSheet(_qss_boton("#ffd35a", "#e08a00", "#fff0b8", "#2a1700", "#ffe08a", "#f09a10")        # MANUAL: ámbar
+                                    + "QPushButton:checked { background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #4be08a, stop:1 #17894a); color:#032413; border:1px solid #c5f7da; }"   # AUTO: verde
+                                    + "QPushButton:checked:hover { border:2px solid #ffffff; }")
         self.btn_modo.setToolTip("✋ MANUAL: el cruce usa los deslizadores de abajo (A, B y Bajo), igual en todos los temas.\n"
                                  "🤖 AUTO: el programa analiza cada par de temas y diseña SU cruce: la duración (en compases), cuándo entra el que viene,\n"
                                  "cómo se va el que sale y en qué compás se traspasa el bajo. Los deslizadores y la duración no se usan.\n"
@@ -150,13 +162,14 @@ class PanelCruce(QFrame):
         self.btn_modo.setChecked(ventana.cruce_auto)
         self.btn_modo.toggled.connect(self._modo_cambio)
         lay.addWidget(self.btn_modo)
-        self.sl_s, self.lv_s = fila("Bajo (cambia):", TEMA["verde"], ventana.punto_s, "Momento de la mezcla en que el bajo pasa del tema que sale al que entra (en la línea de compás más próxima). 0 % = el nuevo trae su bajo desde el principio · 95 % = el viejo mantiene el bajo casi hasta el final.")
         self.lbl_dur = QLabel(); self.lbl_dur.hide()
         self.btn_copiar = QPushButton("📋 Copiar el último cruce Auto")
         self.btn_copiar.setToolTip("Pasa al modo manual los valores del último cruce que diseñó el Auto (A, B, subida, fin de A, forma, bajo y duración),\npara que los puedas retocar o dejarlos fijos para todos los temas.")
+        self.btn_copiar.setStyleSheet(_qss_boton("#b794ff", "#6a3fd4", "#e0d2ff", "#ffffff", "#c9adff", "#7d52e6"))     # violeta
         self.btn_copiar.clicked.connect(self._copiar_auto)
         lay.addWidget(self.btn_copiar)
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
+        b_def.setStyleSheet(_qss_boton("#ff8a95", "#c9283b", "#ffc7cd", "#ffffff", "#ffa1aa", "#dc3a4d"))        # rojo
         lay.addWidget(b_def)
         lay.addStretch()
 
