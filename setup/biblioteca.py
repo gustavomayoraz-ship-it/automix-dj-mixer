@@ -465,9 +465,11 @@ class Biblioteca(QListWidget):
         it.setToolTip(p + "\n\nCasilla tildada = SALTEAR: la carga automática no lo pone en el reproductor.")
         return it
 
-    def agregar(self, rutas):
+    def agregar(self, rutas, permitir_repetidos=False):
         n = 0
         dup = 0
+        ya = 0                                         # temas cuyo mismo archivo ya estaba en la lista
+        repetidos = []                                 # rutas descartadas por ser copia de un tema que ya está
         firmas = self._firmas_actuales()               # lo que ya está en la lista (por nombre + tamaño)
         prev = self._cargando
         self._cargando = True
@@ -476,10 +478,12 @@ class Biblioteca(QListWidget):
             for p in _escanear(rutas):
                 clave = os.path.normcase(os.path.abspath(p))
                 if clave in self._rutas:
+                    ya += 1
                     continue                           # el mismo archivo, ya está
                 f = self._firma(p)
-                if f in firmas:
+                if f in firmas and not permitir_repetidos:
                     dup += 1                           # una copia de un tema que ya está (otra carpeta, "(1)", "- copia"…)
+                    repetidos.append(p)
                     log("biblioteca", f"duplicado omitido: {os.path.basename(p)}")
                     continue
                 firmas.add(f)
@@ -498,6 +502,7 @@ class Biblioteca(QListWidget):
             self.nuevos.emit()
         if dup:
             self.aviso.emit(f"♻️ {dup} tema(s) repetido(s) no se agregaron" + (f" · {n} nuevo(s)" if n else ""))
+        self.ultimo_resumen = {"nuevos": n, "ya_estaban": ya, "repetidos": repetidos}
         return n
 
     def quitar_seleccion(self):
@@ -782,8 +787,32 @@ class Biblioteca(QListWidget):
     def dropEvent(self, e):
         if e.source() is self or not e.mimeData().hasUrls():
             e.ignore(); return
-        self.agregar([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
+        rutas = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
+        n = self.agregar(rutas)
         e.acceptProposedAction()
+        r = getattr(self, "ultimo_resumen", None) or {}
+        if n == 0 and (r.get("ya_estaban") or r.get("repetidos")):
+            QTimer.singleShot(0, lambda: self._avisar_nada_nuevo(rutas, r))      # (fuera del evento de soltar)
+
+    def _avisar_nada_nuevo(self, rutas, r):
+        """Soltaron una carpeta/temas y no se agregó nada porque ya estaban: se explica claro y se ofrece agregar las copias igual."""
+        ya, rep = int(r.get("ya_estaban", 0)), list(r.get("repetidos") or [])
+        partes = []
+        if ya:
+            partes.append(f"• {ya} tema(s) ya estaban en la lista (el mismo archivo).")
+        if rep:
+            partes.append(f"• {len(rep)} tema(s) son copias de otros que ya están (mismo nombre y tamaño, en otra carpeta).")
+        caja = QMessageBox(self)
+        caja.setWindowTitle("No se agregó nada nuevo")
+        caja.setIcon(QMessageBox.Icon.Information)
+        caja.setText("Lo que arrastraste ya está en la lista:\n\n" + "\n".join(partes))
+        b_si = None
+        if rep:
+            b_si = caja.addButton("Agregar las copias igual", QMessageBox.ButtonRole.AcceptRole)
+        caja.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
+        caja.exec()
+        if b_si is not None and caja.clickedButton() is b_si:
+            self.agregar(rep, permitir_repetidos=True)
 
     def paintEvent(self, e):
         super().paintEvent(e)
