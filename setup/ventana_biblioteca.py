@@ -207,9 +207,26 @@ class BibliotecaMixin:
             self._vaciar_decks()
 
     def _vaciar_decks(self):
-        """La lista quedó vacía: los dos reproductores y la línea de tiempo (el espectro de abajo) se limpian."""
+        """La lista quedó vacía: se descargan los reproductores que NO están sonando. El que está sonando sigue hasta que termine el tema
+        (así hay tiempo de cargar carpetas nuevas sin que se corte la música); la mezcla en curso tampoco se toca."""
         a, b = self.deck_a, self.deck_b
         if a.audio is None and b.audio is None and not a.path and not b.path:
+            return
+        sonando = [d for d in (a, b) if d.playing and d.audio is not None]
+        if sonando:
+            log("programa", "lista vacía: sigue sonando el Deck " + " y ".join(d.name for d in sonando) + " hasta que termine el tema")
+            for d in (a, b):
+                if d not in sonando:
+                    try:
+                        d.descargar()
+                    except Exception:
+                        import traceback; traceback.print_exc()
+            try:
+                self.timeline.redraw()
+            except Exception:
+                pass
+            self.biblioteca.pintar(a.path if a in sonando else None, b.path if b in sonando else None)
+            self._set_status("🗑️ Lista vacía: " + " y ".join(f"el Deck {d.name}" for d in sonando) + " sigue sonando hasta que termine. Cargá las carpetas nuevas")
             return
         log("programa", "lista vacía: se descargan los dos decks")
         self.mix_timer.stop(); self.mix_pausa_timer.stop()
