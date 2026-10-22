@@ -17,7 +17,7 @@ from setup.mezclador import GlobalMixer
 from setup.panel_cruce import PanelCruce
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA, aplicar_tema
 from setup.timeline import UnifiedTimeline
-from setup.widgets import EtiquetaElidida, LogoAutoMix, _OpcionApagada, qss_marco
+from setup.widgets import EtiquetaElidida, LogoAutoMix, BotonConfig, _OpcionApagada, qss_marco
 from setup.ventana_multibanda import MultibandaMixin
 from setup.ventana_auto import AutomaticoMixin
 from setup.ventana_auriculares import AuricularesMixin
@@ -168,7 +168,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.marco_dur = QFrame()                # barra de iconos (duración, teclas globales, consola, esquina, ajustes): debajo del Deck B, en su cuadro de color
         self.marco_dur.setObjectName("marcoDur")
         self.marco_dur.setStyleSheet(qss_marco("QFrame#marcoDur", TEMA["verde"], titulo=False))
-        self._fila_duracion = QHBoxLayout(self.marco_dur); self._fila_duracion.setContentsMargins(10, 4, 10, 4); self._fila_duracion.setSpacing(6)
+        self._fila_duracion = QHBoxLayout(self.marco_dur); self._fila_duracion.setContentsMargins(18, 10, 18, 10); self._fila_duracion.setSpacing(10)
+        self.marco_dur.setMinimumHeight(64)
         decks_ab.addWidget(self.marco_dur)
         fila_sup.addLayout(decks_ab, 5)
         der_c = QVBoxLayout(); der_c.setSpacing(8); der_c.setContentsMargins(0, 0, 0, 0)       # a la derecha de los decks: cuadrícula de tarjetas + barra de iconos
@@ -278,12 +279,12 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self._poner_formato_grab_pendiente = leer_config().get("grab_formato", "mp3")      # (se aplica abajo, cuando ya existe el botón de formato)
         self.btn_grabar.clicked.connect(self._alternar_grabacion)
         self.btn_fmt_grab = QPushButton("MP3")                  # formato de la grabación: MP3 (320 kbps) o WAV (sin pérdida)
-        self.btn_fmt_grab.setFixedSize(60, 28); self.btn_fmt_grab.setStyleSheet("QPushButton { padding:0px; font-weight:bold; }")
+        self.btn_fmt_grab.setFixedSize(76, 38); self.btn_fmt_grab.setStyleSheet("QPushButton { padding:0px; font-size:17px; font-weight:bold; }")
         self.btn_fmt_grab.setToolTip("Formato de la grabación: clic para cambiar entre MP3 (320 kbps, ocupa poco) y WAV (sin pérdida, ocupa mucho)")
         self.btn_fmt_grab.clicked.connect(self._cambiar_formato_grab)
         self._poner_formato_grab(self._poner_formato_grab_pendiente)
         self.btn_carpeta_grab = QPushButton("📂")
-        self.btn_carpeta_grab.setFixedSize(44, 28)
+        self.btn_carpeta_grab.setFixedSize(60, 38); self.btn_carpeta_grab.setStyleSheet("QPushButton { padding:0px; font-size:26px; }")
         self.btn_carpeta_grab.setToolTip("Abrir la carpeta con las mezclas grabadas")
         self.btn_carpeta_grab.clicked.connect(self._abrir_carpeta_grabaciones)
         self.lbl_grab = EtiquetaElidida("")
@@ -332,15 +333,15 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_esquina.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
         self.btn_esquina.setToolTip("Ventana al tamaño mínimo, en la esquina superior izquierda de la pantalla")
         self.btn_esquina.clicked.connect(self._a_la_esquina)
-        self._f_dur.insertSpacing(self._f_dur.count() - 1, 6)
+        self._f_dur.insertSpacing(self._f_dur.count() - 1, 12)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_esquina)   # al lado de la consola
-        self.btn_ajustes_gen = QPushButton("⚙")
+        self.btn_ajustes_gen = BotonConfig("⚙", px=24)              # botón animado (colores que fluyen): se nota que es de configuración
         self.btn_ajustes_gen.setFixedSize(50, 34)
-        self.btn_ajustes_gen.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
+        
         self.btn_ajustes_gen.setToolTip("Ajustes generales: todos los tiempos del cruce (pausa del medio, frenado del crossfader, duración y entrada de B del Auto)")
         self.btn_ajustes_gen.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_ajustes_gen.clicked.connect(self._abrir_ajustes_cruce)
-        self._f_dur.insertSpacing(self._f_dur.count() - 1, 6)
+        self._f_dur.insertSpacing(self._f_dur.count() - 1, 12)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_ajustes_gen)   # a la derecha de la flecha ↖
 
         barra_box = QGroupBox("⚓ Auto-enganche — progreso del tema sonando")
