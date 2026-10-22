@@ -20,8 +20,9 @@ class GraficoCruce(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def actualizar(self, pa, pb, avance=None, ps=None, bandas=False, fa=None, simple=False, rb=None, gamma=1.0,
-                   etiqueta=None, vacio=None):
+                   etiqueta=None, vacio=None, inc=None):
         self.rb, self.gamma, self.etiqueta, self.vacio = rb, gamma, etiqueta, vacio
+        self.inc = inc                                                     # (cuándo entra B, cuánto tarda en subir) en fracción del fundido: el fundido de temas incompatibles
         self.simple = bool(simple)
         self.punto_a, self.punto_b, self.avance = pa, pb, avance
         self.fin_a = fa
@@ -48,7 +49,11 @@ class GraficoCruce(QWidget):
         pa, pb, la, lb = [], [], [], []
         for i in range(61):
             t = i / 60
-            if self.simple:
+            if getattr(self, "inc", None):
+                te, fr = self.inc
+                vs = 1.0 - t
+                ve = 1.0 if t >= te + fr - 1e-9 else (max(0.0, (t - te) / fr) if fr > 1e-6 and t >= te else (1.0 if t >= te else 0.0)); ls, le = vs, ve
+            elif self.simple:
                 vs, ve = math.cos(t * math.pi / 2.0), math.sin(t * math.pi / 2.0); ls, le = vs, ve
             elif self.bandas:
                 vs, ve, ls, le = perfil_cruce_bandas(t, self.punto_a, self.punto_b, self.punto_s, rampa=(self.rb or 0.12),
@@ -241,7 +246,12 @@ class PanelCruce(QFrame):
         t = x if self.v._cf_dir == "AB" else 1.0 - x
         pl = self.v._plan_activo() if hasattr(self.v, "mix_timer") else None
         if self.v._cruce_simple():
-            self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, True)
+            if cruce_auto.INC_ACTIVO >= 0.5:                # temas incompatibles: el fundido de ⚙ Ajustes (A baja en rampa, B entra casi al final)
+                d = max(1.0, float(cruce_auto.INC_DUR))
+                self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, inc=(1.0 - float(cruce_auto.INC_ENTRA), float(cruce_auto.INC_SUBE) / d),
+                                     etiqueta=f"📉 INCOMPATIBLES · {cruce_auto.INC_DUR:.0f} s")
+            else:
+                self.graf.actualizar(0.0, 0.0, t, None, False, 1.0, True)
         elif pl:                                           # durante una mezcla Auto, el gráfico muestra el cruce diseñado
             self.graf.actualizar(pl["pa"], pl["pb"], t, pl["ps"], True, pl["fa"], rb=pl["rb"], gamma=pl.get("gamma", 1.0),
                                  etiqueta=f"🤖 AUTO · {pl['n']} comp · {pl['dur']:.0f} s" + (" + pausa" if pl.get("pausa", True) else " · sin pausa"))

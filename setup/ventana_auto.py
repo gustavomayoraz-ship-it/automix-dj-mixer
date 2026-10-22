@@ -268,10 +268,10 @@ class AutomaticoMixin:
             return None
         return float((sig[0] - pos) / max(1e-6, sale.rate_eff))
 
-    def _disparar_mezcla_auto(self, exacto=False, manual=False):
+    def _disparar_mezcla_auto(self, exacto=False, manual=False, sin_espera=False):
         """Punto único de arranque de las mezclas automáticas (auto-enganche y carga automática).
         Con '🥁 En frase' espera al próximo comienzo de frase del tema que suena para arrancar justo ahí."""
-        ya = False
+        ya = bool(sin_espera)                      # (disparo por un break: se mezcla ahí mismo, sin esperar la frase)
         if getattr(self, "_frase_armada", False):
             if not manual:
                 return
@@ -354,6 +354,8 @@ class AutomaticoMixin:
         dur = float(self.spin_mix.value())
         if not auto:
             return dur
+        if cruce_auto.INC_ACTIVO >= 0.5 and self._cruce_simple():
+            return max(1.0, float(cruce_auto.INC_DUR))     # temas incompatibles: la rampa de bajada configurada en ⚙
         try:
             bpm = float((sale.analysis or {}).get("bpm", 0)) * sale.rate_eff
             comp = compat_armonica(self._clave_de(sale), self._clave_de(entra)) if self.chk_armonico.isChecked() else None

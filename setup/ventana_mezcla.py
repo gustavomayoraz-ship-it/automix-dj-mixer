@@ -83,8 +83,12 @@ class MezclaMixin:
         entra.pos_manual = False
         entra.tempo_manual = False                   # al mezclar, el entrante vuelve a seguir al sync
         simple = self._cruce_simple()
+        auto0 = bool(getattr(self, "_mix_auto", False))
+        sale0 = self.deck_a if entra is self.deck_b else self.deck_b
+        self._inc_mix = bool(simple and auto0 and cruce_auto.INC_ACTIVO >= 0.5)       # fundido especial de temas incompatibles (⚙ Ajustes)
+        self._inc_entra = entra
         if simple:                           # BPM muy distintos: sin emparejar nada, solo se arranca el entrante
-            if not entra.playing:
+            if not entra.playing and not self._inc_mix:        # (en el fundido especial el nuevo arranca más tarde, cuando al que sale le queda poco volumen)
                 entra.play()
             print(f"[mezcla] BPM muy distintos ({self.deck_a.original_bpm:.0f} / {self.deck_b.original_bpm:.0f}): cruce simple")
         else:
@@ -121,6 +125,14 @@ class MezclaMixin:
                 nivel = compat_armonica(ks, ke)
                 marca = {2: "✔ compatibles", 1: "≈ vecinas", 0: "✖ chocan → mezcla corta"}.get(nivel, "")
                 print(f"[mezcla] {ks or '?'} → {ke or '?'} {marca} · {duration_s:.1f} s")
+        if self._inc_mix:                                          # que la rampa no pase de lo que le queda al tema que sale
+            try:
+                resta = (len(sale_d.audio) - sale_d.cursor) / (sale_d.sr * max(1e-6, sale_d.rate_eff))
+                duration_s = min(duration_s, max(2.0, resta - 0.3))
+            except Exception:
+                pass
+            log("cruce incompatible", f"BPM {self.deck_a.original_bpm:.0f} / {self.deck_b.original_bpm:.0f}: el Deck {sale_d.name} baja en {duration_s:.0f} s y el Deck {entra.name} entra "
+                                      f"cuando le queda {cruce_auto.INC_ENTRA:.0%} (a los {duration_s * (1 - cruce_auto.INC_ENTRA):.1f} s)")
         if not self._plan and not simple:
             try:
                 self._pc_mix = self._punto_cruce_manual()          # modo Manual: la misma lógica de frenado que el Auto, con tus deslizadores
@@ -147,12 +159,18 @@ class MezclaMixin:
             self.mix_timer.stop()
             self.crossfader.setValue(self.mix_to)
             self._plan = None
+            self._inc_mix = False
             log("mezcla", f"completada · A {self.deck_a.position_seconds():.1f} s / B {self.deck_b.position_seconds():.1f} s")
             self._set_status("🎬 Mezcla completada")
             return
 
         frac = min(1.0, self._mix_acum / self._mix_dur)
         self.mix_steps_done = int(frac * self.mix_steps_total)
+        if getattr(self, "_inc_mix", False):               # temas incompatibles: el nuevo arranca (a su tempo natural) cuando al que sale le queda INC_ENTRA
+            en = getattr(self, "_inc_entra", None)
+            if en is not None and not en.playing and frac >= 1.0 - float(cruce_auto.INC_ENTRA) - 1e-6 and en.audio is not None:
+                en.play()
+                log("cruce incompatible", f"entra el Deck {en.name}")
         pc, zpb = (self._plan.get("pc"), self._plan.get("zpb")) if self._plan else (getattr(self, "_pc_mix", None) or (None, None))
         if pc is not None:                               # frena al acercarse al cruce de las dos líneas, sale lento y acelera hasta el 50 % (Auto y Manual)
             frac = cruce_auto.pos_cruce(frac, pc, zpb)
@@ -322,6 +340,33 @@ class MezclaMixin:
         threading.Thread(target=_calcular, daemon=True, name="fin-audible").start()
         return total
 
+    def _break_vigilar(self, prim, prog):
+        """Si el tema que suena está dentro de un break (energía baja, varios compases) y estamos en el tramo previo a la marca
+        (BREAK_VENTANA antes de ella), devuelve el segundo en que empezó ese break; si no, None. Solo si el otro deck está listo."""
+        try:
+            marca = float(self._marca_frac)
+            if not (marca - cruce_auto.BREAK_VENTANA <= prog < marca):
+                return None
+            entra = self.deck_b if prim is self.deck_a else self.deck_a
+            if entra.audio is None or not entra.analysis:
+                return None
+            an = prim.analysis
+            clave = (id(an), cruce_auto.BREAK_NIVEL, cruce_auto.BREAK_COMPASES)
+            c = getattr(prim, "_breaks_cache", None)
+            if c is None or c[0] != clave:
+                prim._breaks_cache = c = (clave, cruce_auto.detectar_breaks(an))
+            if not c[1]:
+                return None
+            db = self._db_de(prim)
+            compas = float(np.median(np.diff(db))) if len(db) > 2 else 2.0
+            pos = prim.position_virtual_seconds()
+            for ini, fin in c[1]:
+                if ini - 0.05 <= pos < fin - compas:          # el break empezó (o está empezando) y todavía le queda al menos un compás
+                    return ini
+        except Exception:
+            import traceback; traceback.print_exc()
+        return None
+
     def _tick_auto_enganche(self):
         try:
             from setup import hilos_analisis as _ha
@@ -334,6 +379,7 @@ class MezclaMixin:
             self._ultimo_deck_primario = prim
             self._marca_pendiente = False
             self._marca_disparada = False
+            self._break_disparo = False
             self._ultimo_prog_primario = 0.0
 
         if prim is None or not prim.analysis or prim.analysis.get("duration", 0) <= 0:
@@ -362,6 +408,14 @@ class MezclaMixin:
                 self._marca_pendiente = True; self._marca_t_reintento = 0.0
                 log("auto-enganche", "silencio al final del tema → mezcla")
                 self._set_status("🔇 Silencio al final del tema → mezcla")
+            elif (not getattr(self, "_marca_pendiente", False) and cruce_auto.BREAK_ACTIVO >= 0.5 and prim.playing
+                  and not (self.mix_timer.isActive() or self.mix_pausa_timer.isActive())
+                  and self._break_vigilar(prim, prog) is not None):
+                # entró un break (la energía del tema que suena cae) en el tramo previo a la marca: se mezcla ahí, sin esperar a la marca
+                t_ini = self._break_vigilar(prim, prog)
+                self._marca_pendiente = True; self._marca_t_reintento = 0.0; self._break_disparo = True
+                log("auto-enganche", f"break del tema que suena (desde {fmt_time(t_ini)}) antes de la marca → mezcla")
+                self._set_status("🌫 Break detectado → mezcla (antes de la marca)")
             if getattr(self, "_marca_pendiente", False):
                 # Si al cruzar la marca no se pudo arrancar (el otro deck aún sin análisis/tonalidad, sin tema cargado…),
                 # se reintenta cada segundo hasta que la mezcla arranque (antes se perdía y el tema se pasaba de largo).
@@ -369,12 +423,12 @@ class MezclaMixin:
                 if ahora >= getattr(self, "_marca_t_reintento", 0.0):
                     self._marca_t_reintento = ahora + 1.0
                     try:
-                        self._disparar_mezcla_auto(exacto=True)      # la marca roja manda: se engancha JUSTO ahí, sin esperar frase
+                        self._disparar_mezcla_auto(exacto=True, sin_espera=bool(getattr(self, "_break_disparo", False)))      # la marca roja manda: se engancha JUSTO ahí (si fue por un break, también sin esperar frase)
                     except Exception:
                         import traceback; traceback.print_exc()
                     if (self.mix_timer.isActive() or self.mix_pausa_timer.isActive()
                             or getattr(self, "_mix_esperando", False) or getattr(self, "_frase_armada", False)):
-                        self._marca_pendiente = False; self._marca_disparada = True
+                        self._marca_pendiente = False; self._marca_disparada = True; self._break_disparo = False
                         log("auto-enganche", "mezcla arrancada")
 
         self._ultimo_prog_primario = prog

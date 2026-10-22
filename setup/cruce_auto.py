@@ -37,7 +37,16 @@ ADAPTA_DUR = 1.0         # 1 = el Auto 'como mi manual' acorta el fundido (¾) s
 MAN_COMPASES = 8.0       # estrategia 2: largo del fundido en compases (así dura lo mismo, en compases, a cualquier tempo) · 0 = usar los segundos del deslizador «Duración»
 PRO_COMPASES = 16.0      # largo de la mezcla Pro en compases (4, 8, 16 o 32: se toma el más cercano que quepa en lo que le queda al que sale)
 ZONA_V = 1.5             # tope: fuera del frenado el crossfader nunca va a más de esta velocidad (× la velocidad media de la primera mitad)
-DEFECTOS = {k: v for k, v in dict(PAUSA=PAUSA, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
+INC_ACTIVO = 1.0         # 1 = con temas incompatibles (BPM muy distintos) el que suena baja de volumen en INC_DUR s y el nuevo entra a su tempo natural antes de que llegue a cero · 0 = el cruce simple de siempre
+INC_DUR = 10.0           # duración de la rampa de bajada del tema que suena (s)
+INC_ENTRA = 0.15         # el tema nuevo entra cuando al que sale le queda este volumen (fracción: 0.15 = 15 %)
+INC_SUBE = 0.4           # el tema nuevo sube a volumen pleno en tantos segundos (0 = entra de golpe)
+INC_BPM = 0.22           # diferencia máxima de BPM (fracción: 0.22 = 22 %) para mezclar emparejando; más que esto = temas incompatibles
+BREAK_ACTIVO = 0.0        # 1 = antes de la marca roja se vigila un «break» del tema que suena (un tramo donde baja la energía) y se mezcla ahí · 0 = solo la marca
+BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (fracción de la duración del tema: 0.15 = 15 %)
+BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
+BREAK_COMPASES = 2.0      # el break tiene que durar al menos tantos compases seguidos
+DEFECTOS = {k: v for k, v in dict(INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
             ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
@@ -52,6 +61,42 @@ def aplicar(valores):
         g["ENT_MAX"] = g["ENT_MIN"]
     if g["MAX_DUR"] < g["MIN_DUR"]:
         g["MAX_DUR"] = g["MIN_DUR"]
+
+
+def detectar_breaks(an):
+    """Breaks de un tema: lista de (segundo de inicio, segundo de fin) de los tramos en que la energía cae (varios compases seguidos por
+    debajo de BREAK_NIVEL × la energía normal del tema). Usa la forma de onda del análisis y la grilla de compases; [] si no hay grilla."""
+    try:
+        wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
+        dur = float(an.get("duration") or 0)
+        db = np.asarray(an.get("downbeats_full") or an.get("downbeats") or [], dtype=np.float64)
+        if len(wf) < 200 or dur <= 0 or len(db) < 16:
+            return []
+        paso = dur / len(wf)
+        idx = np.clip((db / paso).astype(int), 0, len(wf))
+        r = np.array([wf[a:b].mean() if b > a else np.nan for a, b in zip(idx[:-1], idx[1:])])     # energía de cada compás
+        ok = ~np.isnan(r)
+        if int(ok.sum()) < 8:
+            return []
+        ref = float(np.percentile(r[ok], 70))                  # la energía "normal" del tema (el tramo pleno, no el promedio con los huecos)
+        if ref <= 1e-9:
+            return []
+        bajo = ok & (r < BREAK_NIVEL * ref)
+        n_min = max(1, int(round(BREAK_COMPASES)))
+        out, i, n = [], 0, len(bajo)
+        while i < n:
+            if bajo[i]:
+                j = i
+                while j + 1 < n and bajo[j + 1]:
+                    j += 1
+                if j - i + 1 >= n_min:
+                    out.append((float(db[i]), float(db[j + 1])))
+                i = j + 1
+            else:
+                i += 1
+        return out
+    except Exception:
+        return []
 
 
 def valores():

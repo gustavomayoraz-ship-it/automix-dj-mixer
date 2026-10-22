@@ -2,6 +2,7 @@
 import math
 import time
 import numpy as np
+from setup import cruce_auto
 from setup.ajustes import CF_BAJA_DESDE
 from setup.base import _log_diferido
 from setup.config import perfil_cruce_ab, perfil_cruce_bandas
@@ -57,7 +58,17 @@ class SyncMixin:
 
         simple = self._cruce_simple()
         bandas = bool(self.cruce_ab and self.cruce_bandas and not simple)
-        if simple:                                       # BPM muy distintos: cruce simple de potencia constante
+        if simple and getattr(self, "_inc_mix", False) and (self.mix_timer.isActive() or self.mix_pausa_timer.isActive()):
+            # temas incompatibles (mezcla automática): el que suena baja en rampa lineal y el nuevo entra, a volumen normal, cuando al otro le queda INC_ENTRA
+            t = x if self._cf_dir == "AB" else 1.0 - x
+            g_sale = max(0.0, 1.0 - t)
+            t_e = 1.0 - float(cruce_auto.INC_ENTRA)
+            fr = float(cruce_auto.INC_SUBE) / max(0.5, float(getattr(self, "_mix_dur", 10.0)))
+            g_ent = 1.0 if t >= t_e + fr - 1e-9 else (max(0.0, (t - t_e) / fr) if fr > 1e-6 and t >= t_e else (1.0 if t >= t_e else 0.0))
+            gan_a, gan_b = (g_sale, g_ent) if self._cf_dir == "AB" else (g_ent, g_sale)
+            hi_a = lo_a = gan_a
+            hi_b = lo_b = gan_b
+        elif simple:                                     # BPM muy distintos: cruce simple de potencia constante
             gan_a = math.cos(x * math.pi / 2.0)
             gan_b = math.sin(x * math.pi / 2.0)
             hi_a = lo_a = gan_a
@@ -122,7 +133,7 @@ class SyncMixin:
         a, b = self.deck_a.original_bpm, self.deck_b.original_bpm
         if not (a and b):
             return True
-        return max(a, b) / min(a, b) <= self.BPM_RATIO_MAX
+        return max(a, b) / min(a, b) <= (1.0 + float(cruce_auto.INC_BPM))     # (⚙ Ajustes → temas incompatibles)
 
     def _cruce_simple(self):
         """True si los dos temas tienen BPM muy distintos: no se empareja nada (ni tempo, ni compases, ni fase)

@@ -3,7 +3,7 @@ Lo que se mueve acá se aplica enseguida (en la próxima mezcla) y queda guardad
 import time
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QScrollArea, QSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider,
                                QVBoxLayout, QWidget)
 from setup import cruce_auto
 from setup.config import guardar_config, leer_config
@@ -31,6 +31,7 @@ GRUPOS = [
         ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
          "Largo de la mezcla Pro en compases. Se usa el más cercano de 4, 8, 16 o 32 que quepa en lo que le queda al tema que sale.\n16 compases a 96 BPM son unos 40 s · 8 compases, unos 20 s."),
     ]),
+    ("📉 Temas incompatibles (BPM muy distintos)", []),            # sin deslizadores: se arrastra el dibujo con el mouse
     ("🥁 Frase y compás", [
         ("ESPERA_FRASE", "Esperar a la frase (s máx., 0 = no)", 0, 30, 1, "{:.0f} s",
          "Al llegar a la marca roja del auto-enganche, la mezcla espera (como mucho este tiempo) al próximo inicio de frase (cada 8 compases)\ndel tema que sale, así arranca en el \"1\" de la frase. 0 = arranca justo en la marca. Solo si la grilla del tema es firme."),
@@ -38,6 +39,16 @@ GRUPOS = [
          "1 = la pausa del medio termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración de abajo.\n0 = dura siempre lo mismo. Vale en Auto y en Manual."),
         ("ADAPTA_DUR", "Acortar si chocan tonalidad o tempo", 0, 1, 1, "{:.0f}",
          "1 = en el Auto «como mi manual», el fundido dura ¾ si la tonalidad o el tempo de los dos temas chocan (se pasa más rápido de uno al otro).\n0 = siempre el mismo largo."),
+    ]),
+    ("🌫 Mezclar en un break (en prueba)", [
+        ("BREAK_ACTIVO", "Mezclar en un break del tema que suena", 0, 1, 1, "{:.0f}",
+         "1 = antes de la marca roja se vigila el tema que suena; si entra en un «break» (varios compases en que baja la energía, como el valle de la onda) se\nmezcla ahí, con el tema que entra emparejándose. Si no aparece ninguno, la mezcla arranca en la marca como siempre. 0 = solo la marca."),
+        ("BREAK_VENTANA", "Vigilar desde (% del tema antes de la marca)", 1, 40, 100, "{:.0%}",
+         "Cuánto antes de la marca se empieza a buscar el break, en % de la duración del tema (así sirve para temas de 2 o de 4 minutos).\nEj.: marca en 60 % y 15 % → se busca entre el 45 % y el 60 %."),
+        ("BREAK_NIVEL", "Qué tan bajo es un break", 30, 80, 100, "{:.0%}",
+         "Un compás cuenta como break si su energía es menor que este % de la energía normal del tema. Más bajo = solo huecos muy marcados; más alto = detecta también bajones suaves."),
+        ("BREAK_COMPASES", "Duración mínima del break (compases)", 1, 8, 1, "{:.0f}",
+         "El bajón tiene que durar al menos tantos compases seguidos para valer como break."),
     ]),
     ("⏸ Pausa del medio", [
         ("PAUSA", "Pausa al 50 %", 0, 80, 10, "{:.1f} s",
@@ -224,6 +235,103 @@ class VistaRitmo(QWidget):
         p.end()
 
 
+class VistaIncompatible(QWidget):
+    """Dibujo del fundido para temas incompatibles, que se maneja con el mouse arrastrando los puntos:
+    ● celeste (abajo a la derecha): cuánto dura la bajada del tema que suena · ● rosa de abajo: cuándo entra el nuevo · ● rosa de arriba: cuándo llega a volumen pleno."""
+    TMAX = 30.0                                                                   # el eje llega hasta 30 s (la bajada puede durar entre 2 y 30 s)
+
+    def __init__(self, dlg):
+        super().__init__()
+        self.d = dlg
+        self.setFixedHeight(150)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMouseTracking(True)
+        self.setToolTip("Arrastrá los puntos:\n● celeste = cuánto dura la bajada del tema que suena\n● rosa de abajo = cuándo entra el tema nuevo\n● rosa de arriba = cuándo llega a volumen pleno")
+        self._arr = None
+
+    def _caja(self):
+        return 40.0, self.width() - 16.0, 30.0, self.height() - 26.0          # x0, x1, yt, yb (arriba los títulos, abajo los segundos)
+
+    def _X(self, seg):
+        x0, x1, yt, yb = self._caja()
+        return x0 + (x1 - x0) * max(0.0, min(1.0, seg / self.TMAX))
+
+    def _seg(self, x):
+        x0, x1, yt, yb = self._caja()
+        return max(0.0, min(self.TMAX, (x - x0) / max(1.0, x1 - x0) * self.TMAX))
+
+    def _datos(self):
+        D = max(2.0, float(cruce_auto.INC_DUR)); te = D * (1.0 - float(cruce_auto.INC_ENTRA)); sub = float(cruce_auto.INC_SUBE)
+        return D, te, min(D, te + sub)
+
+    def _puntos(self):
+        x0, x1, yt, yb = self._caja(); D, te, tf = self._datos()
+        return {"dur": QPointF(self._X(D), yb), "entra": QPointF(self._X(te), yb), "sube": QPointF(self._X(tf), yt)}
+
+    def paintEvent(self, ev):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        p.setPen(QPen(QColor(TEMA["linea"]), 1)); p.setBrush(QColor("#070a12")); p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
+        x0, x1, yt, yb = self._caja(); D, te, tf = self._datos()
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1))
+        for seg in range(0, int(self.TMAX) + 1, 10):                                    # cuadrícula cada 10 s
+            p.drawLine(QPointF(self._X(seg), yt), QPointF(self._X(seg), yb))
+        for f in (0.5,):
+            p.drawLine(QPointF(x0, yt + (yb - yt) * f), QPointF(x1, yt + (yb - yt) * f))
+        fs = QFont(self.font()); fs.setPointSizeF(8.0); p.setFont(fs)
+        p.setPen(QColor("#8fa3b8"))
+        p.drawText(QRectF(2, yt - 6, x0 - 6, 12), int(Qt.AlignmentFlag.AlignRight), "100 %"); p.drawText(QRectF(2, yb - 6, x0 - 6, 12), int(Qt.AlignmentFlag.AlignRight), "0")
+        for seg in range(0, int(self.TMAX) + 1, 10):
+            p.drawText(QRectF(self._X(seg) - 20, yb + 5, 40, 14), int(Qt.AlignmentFlag.AlignHCenter), f"{seg} s")
+        ca, cb = QColor(COLOR_DECK_A), QColor(COLOR_DECK_B)
+        def poli(pts, c):
+            g = QPolygonF(pts + [QPointF(pts[-1].x(), yb), QPointF(pts[0].x(), yb)])
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(c.red(), c.green(), c.blue(), 38)); p.drawPolygon(g)
+            p.setBrush(Qt.BrushStyle.NoBrush); p.setPen(QPen(c, 2.6)); p.drawPolyline(QPolygonF(pts))
+        pts = self._puntos()
+        poli([QPointF(x0, yt), pts["dur"]], ca)
+        poli([QPointF(x0, yb), pts["entra"], pts["sube"], QPointF(pts["dur"].x(), yt)], cb)
+        p.setPen(QPen(QColor(TEMA["ambar"]), 1, Qt.PenStyle.DashLine)); p.drawLine(QPointF(pts["entra"].x(), yt), QPointF(pts["entra"].x(), yb))
+        for k, c in (("dur", ca), ("entra", cb), ("sube", cb)):
+            p.setBrush(QColor("#ffffff")); p.setPen(QPen(c, 2.4)); p.drawEllipse(pts[k], 6.0, 6.0)
+        p.setPen(QColor(COLOR_DECK_A)); p.drawText(QRectF(x0, 6, 120, 14), int(Qt.AlignmentFlag.AlignLeft), "● Tema que suena")
+        p.setPen(QColor(COLOR_DECK_B)); p.drawText(QRectF(x0 + 112, 6, 110, 14), int(Qt.AlignmentFlag.AlignLeft), "● Tema nuevo")
+        p.setPen(QColor(TEMA["ambar"]))
+        p.drawText(QRectF(x0 + 200, 6, x1 - x0 - 200, 14), int(Qt.AlignmentFlag.AlignRight),
+                   f"Baja en {D:.0f} s · el nuevo entra a los {te:.1f} s (queda {float(cruce_auto.INC_ENTRA):.0%})")
+        p.end()
+
+    def _cerca(self, pos):
+        pts = self._puntos()
+        for k in ("sube", "entra", "dur"):
+            if (pos - pts[k]).manhattanLength() <= 15:
+                return k
+        return None
+
+    def mousePressEvent(self, ev):
+        self._arr = self._cerca(ev.position())
+        if self._arr:
+            self._mover(ev.position())
+
+    def mouseMoveEvent(self, ev):
+        if self._arr:
+            self._mover(ev.position())
+        else:
+            self.setCursor(Qt.CursorShape.SizeHorCursor if self._cerca(ev.position()) else Qt.CursorShape.ArrowCursor)
+
+    def mouseReleaseEvent(self, ev):
+        self._arr = None
+
+    def _mover(self, pos):
+        D, te, tf = self._datos(); t = self._seg(pos.x())
+        if self._arr == "dur":
+            self.d.inc_set("INC_DUR", float(max(2, min(int(self.TMAX), round(t)))))
+        elif self._arr == "entra":
+            self.d.inc_set("INC_ENTRA", round(max(0.0, min(0.5, 1.0 - t / D)), 2))
+        elif self._arr == "sube":
+            self.d.inc_set("INC_SUBE", round(max(0.0, min(3.0, t - te)), 1))
+
+
 class AjustesCruce(QDialog):
     def __init__(self, ventana):
         super().__init__(ventana)
@@ -238,6 +346,7 @@ class AjustesCruce(QDialog):
         lay.addWidget(info)
         self.vista = VistaRitmo(ventana)
         lay.addWidget(self.vista)
+        cont = QWidget(); cl = QVBoxLayout(cont); cl.setContentsMargins(0, 0, 6, 0); cl.setSpacing(8)      # los grupos van en una zona con scroll: el formulario no pasa del alto de la pantalla
         self._sl = {}
         self._filas_w = {}                              # clave -> (etiqueta, deslizador, valor)
         self._cajas = []                                # (caja, [claves])
@@ -245,7 +354,21 @@ class AjustesCruce(QDialog):
             caja = QGroupBox(titulo)
             gl = QGridLayout(caja)
             gl.setContentsMargins(8, 14, 8, 6); gl.setHorizontalSpacing(8); gl.setVerticalSpacing(4)
-            for r, (k, texto, lo, hi, div, fmt, tip) in enumerate(filas):
+            r0 = 0
+            if titulo.startswith("📉"):                     # este grupo es solo el dibujo (se arrastra con el mouse) y una fila con el interruptor y el límite de BPM
+                self.vista_inc = VistaIncompatible(self)
+                gl.addWidget(self.vista_inc, 0, 0, 1, 3)
+                fila_i = QHBoxLayout(); fila_i.setContentsMargins(0, 0, 0, 0)
+                self.chk_inc = QCheckBox("Activado"); self.chk_inc.setChecked(cruce_auto.INC_ACTIVO >= 0.5)
+                self.chk_inc.setToolTip("Activado: con temas incompatibles el que suena baja en rampa y el nuevo entra a su tempo natural.\nDesactivado: el cruce simple de siempre.")
+                self.chk_inc.toggled.connect(lambda on: self.inc_set("INC_ACTIVO", 1.0 if on else 0.0))
+                self.sp_inc = QSpinBox(); self.sp_inc.setRange(5, 60); self.sp_inc.setSuffix(" %"); self.sp_inc.setValue(int(round(cruce_auto.INC_BPM * 100)))
+                self.sp_inc.setToolTip("Diferencia de BPM entre los dos temas a partir de la cual se consideran incompatibles (no se emparejan).")
+                self.sp_inc.valueChanged.connect(lambda v: self.inc_set("INC_BPM", v / 100.0))
+                fila_i.addWidget(self.chk_inc); fila_i.addStretch(1); fila_i.addWidget(QLabel("Incompatibles si el BPM difiere más de")); fila_i.addWidget(self.sp_inc)
+                gl.addLayout(fila_i, 1, 0, 1, 3)
+                r0 = 2
+            for r, (k, texto, lo, hi, div, fmt, tip) in enumerate(filas, r0):
                 lbl = QLabel(texto); lbl.setToolTip(tip)
                 sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setToolTip(tip)
                 sl.setValue(int(round(getattr(cruce_auto, k) * div)))
@@ -257,7 +380,11 @@ class AjustesCruce(QDialog):
                 self._sl[k] = (sl, val, div, fmt)
                 self._filas_w[k] = (lbl, sl, val)
             self._cajas.append((caja, [f[0] for f in filas]))
-            lay.addWidget(caja)
+            cl.addWidget(caja)
+        cl.addStretch(1)
+        sc = QScrollArea(); sc.setWidgetResizable(True); sc.setFrameShape(QFrame.Shape.NoFrame); sc.setWidget(cont)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        lay.addWidget(sc, 1)
         fila = QHBoxLayout()
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
         b_cer = QPushButton("Cerrar"); b_cer.clicked.connect(self.close)
@@ -266,6 +393,23 @@ class AjustesCruce(QDialog):
         fila.addWidget(b_def); fila.addStretch(1); fila.addWidget(b_cer)
         lay.addLayout(fila)
         self._visibles()
+        try:
+            alto = int(self.screen().availableGeometry().height() * 0.88)
+        except Exception:
+            alto = 800
+        self.resize(720, min(alto, 900))
+
+    def inc_set(self, k, v):
+        """Cambia un valor del fundido de temas incompatibles (desde el dibujo, el interruptor o el límite de BPM) y lo guarda."""
+        cruce_auto.aplicar({k: v})
+        guardar()
+        if hasattr(self, "vista_inc"):
+            self.vista_inc.update()
+
+    def _inc_sincronizar(self):
+        self.chk_inc.blockSignals(True); self.chk_inc.setChecked(cruce_auto.INC_ACTIVO >= 0.5); self.chk_inc.blockSignals(False)
+        self.sp_inc.blockSignals(True); self.sp_inc.setValue(int(round(cruce_auto.INC_BPM * 100))); self.sp_inc.blockSignals(False)
+        self.vista_inc.update()
 
     def _visibles(self):
         """Esconde los ajustes que no sirven con la estrategia elegida (y los grupos que quedan vacíos)."""
@@ -275,8 +419,7 @@ class AjustesCruce(QDialog):
             for w in ws:
                 w.setVisible(ok)
         for caja, claves in self._cajas:
-            caja.setVisible(any(SOLO_ESTRATEGIA.get(k, e) == e for k in claves))
-        self.adjustSize()
+            caja.setVisible((not claves) or any(SOLO_ESTRATEGIA.get(k, e) == e for k in claves))
 
     def _cambio(self, k, x, div, fmt, val):
         val.setText(fmt.format(x / div))
@@ -290,6 +433,8 @@ class AjustesCruce(QDialog):
                 pass
         guardar()
         self.vista.update()
+        if hasattr(self, "vista_inc"):
+            self.vista_inc.update()
 
     def _defecto(self):
         for k, (sl, val, div, fmt) in self._sl.items():
@@ -299,3 +444,5 @@ class AjustesCruce(QDialog):
         guardar()
         self._visibles()
         self.vista.update()
+        if hasattr(self, "vista_inc"):
+            self._inc_sincronizar()
