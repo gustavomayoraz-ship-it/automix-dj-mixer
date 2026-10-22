@@ -27,10 +27,12 @@ class EfectosMixin:
         for i, (nombre, _f, tip) in enumerate(EFECTOS):
             self.cmb_fx.addItem(nombre, i)
             self.cmb_fx.setItemData(i, tip, Qt.ItemDataRole.ToolTipRole)
-        sel = int(cfg.get("fx_sel", 0))
-        self.cmb_fx.setCurrentIndex(sel if 0 <= sel < len(EFECTOS) else 0)
+        self.cmb_fx.setMaxVisibleItems(16)               # lista larga: se ve con barra de desplazamiento
+        _n = cfg.get("fx_nombre")                        # se recuerda por nombre (el orden de la lista puede crecer)
+        _i = next((k for k, e in enumerate(EFECTOS) if e[0] == _n), 0)
+        self.cmb_fx.setCurrentIndex(_i)
         self.cmb_fx.setToolTip("Elegí el efecto de sonido; el botón ▶ lo reproduce.")
-        self.cmb_fx.currentIndexChanged.connect(lambda i: guardar_config(fx_sel=int(i)))
+        self.cmb_fx.currentIndexChanged.connect(lambda i: guardar_config(fx_nombre=EFECTOS[int(i)][0]))
         fila.addWidget(self.cmb_fx, 1)
         self.btn_fx = QPushButton("▶")                  # abajo, ancho y alto: fácil de tocar
         self.btn_fx.setMinimumHeight(40); self.btn_fx.setFocusPolicy(Qt.FocusPolicy.NoFocus)
