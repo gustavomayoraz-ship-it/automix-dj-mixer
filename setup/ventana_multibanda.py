@@ -131,7 +131,7 @@ class MultibandaMixin:
         self.btn_mix.setMinimumHeight(38); self.btn_mix.setMaximumHeight(16777215)
         self.btn_mix.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         col_mix.addWidget(self.btn_mix, 1)
-        self._fila_herr.addWidget(self.marco_mezcla, 4)
+        self._fila_herr.addWidget(self.marco_mezcla, 1, 1)
         # barra de iconos (arriba de las tarjetas): teclas globales a la izquierda de 🖥 ↖ ⚙
         self.chk_f2g = QCheckBox("⌨ Teclas globales")
         self.chk_f2g.setToolTip("Con esto activado, F2 (mezclar) y las flechas ↑ / ↓ (volumen) funcionan aunque estés en otra ventana o programa (mientras AutoMix esté abierto).\n"

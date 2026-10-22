@@ -61,7 +61,8 @@ class Deck(QFrame):
         self.setGraphicsEffect(efecto)
         self._efecto = efecto
         self._glow_paso = -1
-        self.setFixedHeight(124)
+        self.setMinimumHeight(124); self.setMaximumHeight(16777215)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)      # el deck se estira hasta cubrir el alto de la columna
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 4, 8, 4)
@@ -92,7 +93,7 @@ class Deck(QFrame):
         col_t.addLayout(r2)
         col_t.addStretch(1)
         top.addLayout(col_t, 1)
-        lay.addLayout(top)
+        lay.addLayout(top, 3)
 
         r3 = QHBoxLayout()
         r3.setSpacing(4)
@@ -102,10 +103,11 @@ class Deck(QFrame):
         self.btn_stop = QPushButton("⏹")
         self.btn_reset = QPushButton("⟲")
         for b in (self.btn_load, self.btn_pause, self.btn_stop, self.btn_reset):       # (el ▶ pasó arriba, grande: los demás se reparten su lugar)
-            b.setFixedHeight(30); b.setFixedWidth(60); r3.addWidget(b)
+            b.setMinimumHeight(30); b.setMaximumHeight(48); b.setFixedWidth(60)
+            b.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding); r3.addWidget(b)
             fb = b.font(); fb.setPointSizeF(14.0); fb.setBold(True); b.setFont(fb)
-        self.btn_play.setFixedHeight(48); self.btn_play.setMinimumWidth(150)
-        self.btn_play.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_play.setMinimumHeight(48); self.btn_play.setMaximumHeight(16777215); self.btn_play.setMinimumWidth(150)
+        self.btn_play.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         fp = self.btn_play.font(); fp.setPointSizeF(28.0); fp.setBold(True); self.btn_play.setFont(fp)
         self.btn_play.setToolTip("Reproducir")
         top.addWidget(self.btn_play, 2)
@@ -130,7 +132,7 @@ class Deck(QFrame):
             b.setStyleSheet("QPushButton { padding:0px; font-size:11px; }")
             b.clicked.connect(lambda _=False, d=paso: self.sld_tempo.setValue(self.sld_tempo.value() + d))
             r3.addWidget(b)
-        lay.addLayout(r3)
+        lay.addLayout(r3, 2)
 
         self.sld_tempo.valueChanged.connect(self._update_tempo)
 
@@ -519,10 +521,11 @@ class Deck(QFrame):
     RESET_SUAVE_S = 3.0
 
     def _ubicar_reloj(self):
-        """Lo deja centrado justo arriba de las dos flechitas."""
+        """Lo deja en la misma columna que las dos flechitas, pero subido hasta el centro del botón ▶ (bien visible sobre el verde)."""
         a, b = self._flechas_tempo
         c = a.mapTo(self, QPoint(0, 0)); d = b.mapTo(self, QPoint(b.width(), 0))
-        self.reloj_reset.move((c.x() + d.x() - self.reloj_reset.width()) // 2, c.y() - self.reloj_reset.height() - 3)
+        pc = self.btn_play.mapTo(self, QPoint(0, self.btn_play.height() // 2))          # centro vertical del botón ▶ (la zona verde)
+        self.reloj_reset.move((c.x() + d.x() - self.reloj_reset.width()) // 2, pc.y() - self.reloj_reset.height() // 2)
         self.reloj_reset.raise_()
 
     def _paso_reset_suave(self):

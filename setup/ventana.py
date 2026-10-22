@@ -3,7 +3,7 @@ import sys
 import time
 import numpy as np
 import sounddevice as sd
-from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QSplitter, QVBoxLayout, QWidget
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import QTimer, Qt
 from setup.ajustes import ESC_MIN, fmt_time
@@ -160,21 +160,29 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.deck_a.on_reset_cb = self._on_reset_deck
         self.deck_b.on_reset_cb = self._on_reset_deck
         self.panel_cruce = PanelCruce(self)
-        izq = QVBoxLayout(); izq.setSpacing(6); izq.setContentsMargins(0, 0, 0, 0)       # columna de los dos decks (+ la duración debajo)
-        decks_ab = QHBoxLayout(); decks_ab.setSpacing(14); decks_ab.setContentsMargins(0, 0, 0, 0)
-        decks_ab.addWidget(self.deck_a, stretch=1)
-        decks_ab.addWidget(self.deck_b, stretch=1)
-        izq.addLayout(decks_ab)
-        izq.addStretch(1)                        # la duración queda centrada en el hueco entre los decks y el panel de abajo
-        self._fila_duracion = QHBoxLayout(); self._fila_duracion.setContentsMargins(0, 0, 0, 0); self._fila_duracion.setSpacing(6)
-        izq.addLayout(self._fila_duracion)       # barra de iconos (teclas globales, consola, esquina, ajustes), justo debajo de los decks
-        self._fila_herr = QHBoxLayout(); self._fila_herr.setContentsMargins(0, 0, 0, 0); self._fila_herr.setSpacing(10)
-        izq.addLayout(self._fila_herr)           # tres tarjetas del mismo alto: 🛠 Herramientas · 🎧 Auriculares · 🎬 Mezcla
-        self.marco_rej = QGroupBox("🛠 Herramientas")          # tarjeta cian: Auto-grilla + tono fijo, grabación y efectos
+        izq = QVBoxLayout(); izq.setSpacing(6); izq.setContentsMargins(0, 0, 0, 0)       # columna central: decks (apilados) + tarjetas a su derecha
+        fila_sup = QHBoxLayout(); fila_sup.setSpacing(14); fila_sup.setContentsMargins(0, 0, 0, 0)
+        decks_ab = QVBoxLayout(); decks_ab.setSpacing(10); decks_ab.setContentsMargins(0, 0, 0, 0)       # Deck A arriba, Deck B abajo
+        decks_ab.addWidget(self.deck_a, 1)       # los dos decks se estiran parejo hasta abajo (sin hueco vacío)
+        decks_ab.addWidget(self.deck_b, 1)
+        self.marco_dur = QFrame()                # barra de iconos (duración, teclas globales, consola, esquina, ajustes): debajo del Deck B, en su cuadro de color
+        self.marco_dur.setObjectName("marcoDur")
+        self.marco_dur.setStyleSheet(qss_marco("QFrame#marcoDur", TEMA["verde"], titulo=False))
+        self._fila_duracion = QHBoxLayout(self.marco_dur); self._fila_duracion.setContentsMargins(10, 4, 10, 4); self._fila_duracion.setSpacing(6)
+        decks_ab.addWidget(self.marco_dur)
+        fila_sup.addLayout(decks_ab, 5)
+        der_c = QVBoxLayout(); der_c.setSpacing(8); der_c.setContentsMargins(0, 0, 0, 0)       # a la derecha de los decks: cuadrícula de tarjetas + barra de iconos
+        self._fila_herr = QGridLayout(); self._fila_herr.setContentsMargins(0, 0, 0, 0); self._fila_herr.setHorizontalSpacing(10); self._fila_herr.setVerticalSpacing(6)
+        self._fila_herr.setColumnStretch(0, 1); self._fila_herr.setColumnStretch(1, 1)
+        self._fila_herr.setRowStretch(0, 1); self._fila_herr.setRowStretch(1, 1)
+        der_c.addLayout(self._fila_herr, 1)      # 2×2: 🛠 Herramientas · ⏺ Grabación / 🎧 Auriculares · 🎬 Mezcla (repartidas parejo)
+        fila_sup.addLayout(der_c, 6)
+        izq.addLayout(fila_sup)
+        self.marco_rej = QGroupBox("🛠 Herramientas")          # tarjeta cian: Auto-grilla + tono fijo y efectos
         self.marco_rej.setObjectName("marcoRej")
         self.marco_rej.setStyleSheet(qss_marco("QGroupBox#marcoRej", TEMA["cian"]))
         self._fila_rej = QVBoxLayout(self.marco_rej); self._fila_rej.setContentsMargins(10, 6, 10, 8); self._fila_rej.setSpacing(6)
-        self._fila_herr.addWidget(self.marco_rej, 5)
+        self._fila_herr.addWidget(self.marco_rej, 0, 0)
         izq.addStretch(1)
         decks_row.addLayout(izq, stretch=1)
         decks_row.addWidget(self.panel_cruce, alignment=Qt.AlignmentFlag.AlignTop)
@@ -302,8 +310,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         fila_g.addWidget(self.btn_fmt_grab); fila_g.addWidget(self.btn_carpeta_grab); fila_g.addWidget(self.lbl_grab, 1)
         col_g.addLayout(fila_g)
         col_g.addStretch(1)
-        self.marco_grab.setFixedWidth(210)
-        self._fila_herr.insertWidget(1, self.marco_grab, 0, Qt.AlignmentFlag.AlignTop)
+        self._fila_herr.addWidget(self.marco_grab, 0, 1)
         self._fila_rej.addWidget(self._crear_efectos())          # 🎆 efectos de sonido (lista + ▶ + volumen)
         self._fila_rej.addStretch(1)
         self._crear_auriculares()                                # tarjeta 🎧 (se acomoda entre Herramientas y Mezcla)

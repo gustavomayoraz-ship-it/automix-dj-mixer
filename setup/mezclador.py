@@ -27,6 +27,8 @@ class GrabadorMezcla:
         self._q = queue.Queue(maxsize=600)         # ~14 s de margen si el disco se atrasa
         self._hilo = None
         self._error = None
+        self.terminando = False; self.listo = False
+        self._rampa = None; self._fade_n = 0; self._cola_n = 0; self._fade_i = 0
         self._pool = [np.empty((blocksize, 2), dtype=np.float32) for _ in range(self.POOL)]
 
     def _nuevo_buffer(self):
@@ -56,6 +58,7 @@ class GrabadorMezcla:
         carpeta = Path(carpeta); carpeta.mkdir(parents=True, exist_ok=True)
         base = carpeta / time.strftime("AutoMix_%Y-%m-%d_%H-%M-%S")
         self.muestras = 0; self.perdidos = 0; self._error = None
+        self.terminando = False; self.listo = False; self._rampa = None
         while not self._q.empty():
             try: self._q.get_nowait()
             except Exception: break
@@ -67,10 +70,40 @@ class GrabadorMezcla:
         self._hilo.start()
         return self.ruta
 
+    def finalizar(self, fade_s=15.0, cola_s=3.0):
+        """Cierre suave: lo que va al archivo baja a cero en `fade_s` segundos y después hay `cola_s` segundos de silencio.
+        (Solo afecta a la grabación: lo que suena por los parlantes no cambia.) Cuando termina, `listo` pasa a True."""
+        if not self.activo or self.terminando:
+            return
+        n = max(1, int(fade_s * self.sr))
+        x = np.arange(n, dtype=np.float32) / n
+        self._rampa = (0.5 * (1.0 + np.cos(np.pi * x))).astype(np.float32)      # coseno: arranque y llegada suaves
+        self._fade_n = n; self._cola_n = int(cola_s * self.sr); self._fade_i = 0
+        self.terminando = True
+
+    @property
+    def restante(self):
+        """Segundos que faltan para que termine el cierre suave."""
+        return max(0.0, (self._fade_n + self._cola_n - self._fade_i) / float(self.sr)) if self.terminando else 0.0
+
     def escribir(self, bloque):               # callback de audio: SIN allocations si hay buffer en el pool
         try:
+            if self.listo:
+                return
             buf = self._nuevo_buffer()
             np.copyto(buf, bloque)            # copia sin alocar
+            if self.terminando:
+                n = len(bloque); i = self._fade_i
+                if i >= self._fade_n:
+                    buf[:n] = 0.0
+                else:
+                    m = min(n, self._fade_n - i)
+                    buf[:m] *= self._rampa[i:i + m, None]
+                    if m < n:
+                        buf[m:n] = 0.0
+                self._fade_i = i + n
+                if self._fade_i >= self._fade_n + self._cola_n:
+                    self.listo = True
             self._q.put_nowait(buf)
             self.muestras += len(bloque)
         except Exception:

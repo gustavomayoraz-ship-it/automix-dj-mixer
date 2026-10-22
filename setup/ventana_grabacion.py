@@ -11,6 +11,8 @@ class GrabacionMixin:
 
 
     CARPETA_GRAB = ROOT / "grabaciones"
+    FADE_GRAB_S = 15.0            # al parar: rampa de bajada de 15 s en el archivo...
+    COLA_GRAB_S = 3.0             # ...y 3 s de silencio al final, para que no corte en seco
 
     def _formato_grab(self):
         return "wav" if self.btn_fmt_grab.text().upper() == "WAV" else "mp3"
@@ -44,8 +46,12 @@ class GrabacionMixin:
             self.btn_grabar.setStyleSheet("QPushButton { background:#7a1620; border:2px solid #ff4d5e; color:#ffffff; font-weight:bold; }")
             self._tic_grabacion()
             self._t_grab.start()
+        elif not g.terminando:
+            g.finalizar(self.FADE_GRAB_S, self.COLA_GRAB_S)          # 1.er clic: cierre suave (15 s de rampa + 3 s de silencio)
+            log("grabación", f"cierre suave: {self.FADE_GRAB_S:.0f} s de rampa + {self.COLA_GRAB_S:.0f} s de silencio")
+            self._tic_grabacion()
         else:
-            self._parar_grabacion()
+            self._parar_grabacion()                                  # 2.º clic durante el cierre: corta ya
 
     def _parar_grabacion(self):
         g = self.mixer.grabador
@@ -67,6 +73,13 @@ class GrabacionMixin:
         if g._error:
             self._parar_grabacion()
             self.lbl_grab.setText("⚠️ Error de disco")
+            return
+        if g.listo:
+            self._parar_grabacion()
+            return
+        if g.terminando:
+            self.btn_grabar.setText(f"⏳ Terminando… {int(g.restante) + 1} s   (clic = cortar ya)")
+            self.lbl_grab.setText("")
             return
         seg = int(g.segundos)
         h, r = divmod(seg, 3600); m, s = divmod(r, 60)

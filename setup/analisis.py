@@ -964,8 +964,9 @@ def _analizar_archivo(path):
 
 def _guardar_cache(cache_key, result):
     tmp = Path(str(cache_key) + ".tmp")
+    txt = json.dumps(result)                  # (json.dump a un archivo usa el codificador lento en Python: ~1,4 s en la interfaz; dumps usa el rápido en C)
     with open(tmp, "w") as f:
-        json.dump(result, f)
+        f.write(txt)
     os.replace(tmp, cache_key)
 
 

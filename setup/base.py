@@ -244,6 +244,10 @@ class ConsolaOculta:
         self._orig = {}
         self._inicio_linea = True
         self._archivo = None
+        import queue
+        self._cola_salida = queue.SimpleQueue()   # texto pendiente de escribir (lo escribe un hilo aparte)
+        self._hilo_salida = None
+        self._visor_roto = False
         self.es_windows = (os.name == "nt")
         self._propia = False            # la consola es de este proceso: no se vuelca a ella mientras está oculta
         self._modo = None               # None | "libre" (consola propia, FreeConsole) | "ventana" (la comparte py.exe) | "terminal"
@@ -323,19 +327,43 @@ class ConsolaOculta:
                 self._inicio_linea = True
         t = "".join(salida)
         self.buffer.append(t)
-        if self._archivo:
-            try: self._archivo.write(t)
-            except Exception: pass
-        if self.visible and self._destino:
+        # Escribir en el archivo / la consola puede tardar cientos de ms (consola de Windows lenta, antivirus): se hace en un hilo aparte
+        # para que la interfaz y el audio no se trabe nunca por esto.
+        if getattr(self, "_visor_roto", False):
+            self._visor_roto = False
+            self._cerrar_visor()                      # la cerraron con la X (lo detectó el hilo escritor)
+        self._cola_salida.put((nombre, t, texto))
+        if self._hilo_salida is None:
+            self._hilo_salida = threading.Thread(target=self._escritor, daemon=True, name="consola-escritor")
+            self._hilo_salida.start()
             try:
-                self._destino.write(t); self._destino.flush()
+                import atexit
+                atexit.register(self._vaciar_salida)
             except Exception:
-                self._cerrar_visor()                  # la cerraron con la X
-        else:
-            o = self._orig.get(nombre)
-            if o is not None and not self._propia:
-                try: o.write(texto); o.flush()
+                pass
+
+    def _escritor(self):
+        while True:
+            nombre, t, texto = self._cola_salida.get()
+            if self._archivo:
+                try: self._archivo.write(t)
                 except Exception: pass
+            if self.visible and self._destino:
+                try:
+                    self._destino.write(t); self._destino.flush()
+                except Exception:
+                    self._visor_roto = True           # la cerraron con la X: el cierre lo hace el hilo principal
+            else:
+                o = self._orig.get(nombre)
+                if o is not None and not self._propia:
+                    try: o.write(texto); o.flush()
+                    except Exception: pass
+
+    def _vaciar_salida(self):
+        """Al cerrar: espera (como mucho 1 s) a que se escriba lo que quedó en cola."""
+        t0 = time.time()
+        while not self._cola_salida.empty() and time.time() - t0 < 1.0:
+            time.sleep(0.02)
 
     # ---- abrir / cerrar ----
     # La consola se muestra en una ventana APARTE (un proceso visor que recibe el texto por una tubería): así la X de

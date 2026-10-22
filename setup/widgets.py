@@ -185,7 +185,11 @@ class EtiquetaAncha(QLabel):
 
     def sizeHint(self):
         fm = self.fontMetrics()
-        w = max(fm.horizontalAdvance(t) for t in self._textos + [self.text()])
+        clave = self.font().key()                 # medir los ~100 textos posibles en cada relayout era lo que más tiempo robaba: se mide una vez por fuente
+        c = getattr(self, "_w_cache", None)
+        if c is None or c[0] != clave:
+            c = self._w_cache = (clave, max(fm.horizontalAdvance(t) for t in self._textos))
+        w = max(c[1], fm.horizontalAdvance(self.text()))
         h = super().sizeHint().height()
         return QSize(w + 2 * self.margin() + 4, h)
 
