@@ -165,7 +165,27 @@ class MultibandaMixin:
         for sl in (self.sld_mb, self.sld_lim, self.sld_vel, self.sld_golpe, self.sld_medios, self.sld_agudos):
             sl.valueChanged.connect(self._mb_cambio)
         self._mb_cambio()
+        self._mb_grid = g
+        self._mb_compacto_on = False
         return w
+
+    def _mb_compacto(self, activo):
+        """Pantallas bajas (ej. 1366x768): oculta la tabla de bandas del panel (Nivel · Umbral · Ratio · Reducción · Compensación).
+        Esa tabla es solo un indicador: se sigue viendo y editando completa en ⚙ Ajustes. Así la interfaz no tiene que
+        achicarse hasta quedar con las letras y los botones cortados."""
+        g = getattr(self, "_mb_grid", None)
+        if g is None:
+            return
+        for i in range(g.count()):
+            wd = g.itemAt(i).widget()
+            if wd is not None and 1 <= g.getItemPosition(i)[0] <= 5:       # filas 1 a 5: títulos, 3 bandas y la línea
+                wd.setVisible(not activo)
+        self._mb_compacto_on = bool(activo)
+        g.invalidate()
+        p = g.parentWidget()                    # el tamaño mínimo se guarda en cada contenedor: se avisa hacia arriba hasta la ventana
+        while p is not None:
+            p.updateGeometry()
+            p = p.parentWidget()
 
     def _mb_armar_dialogo(self, cfg, suave, naranja):
         """Ventana ⚙ Ajustes: la multibanda completa (Intensidad, tabla de bandas y Avanzado), con copias enlazadas de los controles

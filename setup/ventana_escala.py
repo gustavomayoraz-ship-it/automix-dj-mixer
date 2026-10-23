@@ -3,7 +3,7 @@ import re
 from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QGroupBox, QLayout, QScrollBar, QWidget
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtGui import QFont
-from setup.ajustes import AJ, ESC_MIN, FUENTE_BOOST
+from setup.ajustes import AJ, ANCHO_LISTA, ESC_COMPACTO, ESC_MIN, ESC_MIN_COMPACTO, ESC_PISO, FUENTE_BOOST, PANEL_CRUCE_MAX_W, PANEL_CRUCE_MIN_W
 from setup.base import log
 
 
@@ -40,6 +40,75 @@ class EscalaMixin:
             m = lay.contentsMargins()
             self._esc_layouts.append((lay, m.left(), m.top(), m.right(), m.bottom(), lay.spacing()))
 
+    def _esc_min(self):
+        """Escala mínima vigente: ESC_MIN en pantallas normales; más chica si hace falta para que entre en la pantalla."""
+        return getattr(self, "_esc_min_val", ESC_MIN)
+
+    def _preparar_medida(self):
+        """Deja todos los widgets listos (letras y hojas de estilo ya aplicadas) para que minimumSizeHint() sea el real."""
+        for wd in self.findChildren(QWidget):
+            wd.ensurePolished()
+            wd.updateGeometry()                 # cada widget guarda su tamaño mínimo: se descarta el viejo para medir el real
+        for lay in self.findChildren(QLayout):
+            lay.invalidate()
+        if self.layout() is not None:
+            self.layout().activate()
+
+    def _buscar_escala(self, lim_w, lim_h, inicio=ESC_MIN):
+        """Escala más grande (hasta `inicio`) a la que el tamaño mínimo de la ventana entra en lim_w x lim_h."""
+        s = inicio
+        for _ in range(25):
+            self._aplicar_escala(s)
+            self._preparar_medida()
+            mh = self.minimumSizeHint()
+            if mh.height() <= lim_h and mh.width() <= lim_w:
+                return s, True
+            if s <= ESC_PISO + 1e-9:
+                log("ventana", f"aviso: aun con la escala mínima ({ESC_PISO}) la ventana ({mh.width()}x{mh.height()}) no entra en {lim_w}x{lim_h}")
+                return s, False
+            factor = min(lim_h / max(mh.height(), 1), lim_w / max(mh.width(), 1), 0.97)
+            s = max(ESC_PISO, s * factor)
+        return s, False
+
+    def _calcular_esc_min(self):
+        """Escala mínima = la más grande a la que el tamaño mínimo de la ventana entra en el área libre de la pantalla
+        (sin la barra de tareas). Si hace falta bajar mucho (pantallas de 768 px de alto), primero se pasa al modo
+        compacto (sin la tabla de bandas de la multibanda) en vez de achicar todo hasta dejar los controles cortados."""
+        s = ESC_MIN
+        try:
+            ag = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+            fg, g = self.frameGeometry(), self.geometry()
+            marco_w = max(fg.width() - g.width(), 16)          # borde + título de Windows (si todavía no se mostró, se estima)
+            marco_h = max(fg.height() - g.height(), 40)
+            lim_w = ag.width() - marco_w - 8                   # 4 px de separación a cada lado
+            lim_h = ag.height() - marco_h - 8
+            if hasattr(self, "_mb_compacto"):
+                self._mb_compacto(False)
+            s, _ = self._buscar_escala(lim_w, lim_h)
+            if s < ESC_COMPACTO and hasattr(self, "_mb_compacto"):
+                s_completa = s
+                self._mb_compacto(True)
+                s, _ = self._buscar_escala(lim_w, lim_h, ESC_MIN_COMPACTO)
+                log("ventana", f"pantalla baja ({ag.width()}x{ag.height()} útiles): modo compacto (tabla de bandas en ⚙ Ajustes) · escala mínima {s_completa:.2f} → {s:.2f}")
+            elif s < ESC_MIN:
+                log("ventana", f"pantalla chica ({ag.width()}x{ag.height()} útiles): escala mínima ajustada de {ESC_MIN} a {s:.2f}")
+        except Exception as e:
+            log("ventana", f"no se pudo ajustar la escala a la pantalla ({e})")
+            s = ESC_MIN
+        self._esc_min_val = s
+        return s
+
+    def _ajustar_escala_pantalla(self):
+        """Calcula la escala mínima para ESTA pantalla, deja la ventana en su tamaño mínimo y fija la base de escala."""
+        em = self._calcular_esc_min()
+        self._aplicar_escala(em)
+        self._preparar_medida()
+        mh = self.minimumSizeHint()
+        self.ESC_BASE_W = mh.width() / em * 1.05        # +5 % de holgura: el mínimo no crece exacto con la escala
+        self.ESC_BASE_H = mh.height() / em * 1.05
+        self.resize(mh)
+        return em
+
     def changeEvent(self, e):
         super().changeEvent(e)
         try:
@@ -54,7 +123,7 @@ class EscalaMixin:
         if getattr(self, "_en_esquina", False):        # lo está acomodando el botón ↖: que no la centre en el medio del camino
             return
         log("ventana", "restaurada: vuelve al tamaño mínimo")
-        self._aplicar_escala(ESC_MIN)                  # el mínimo depende de la escala: primero la de arranque
+        self._aplicar_escala(self._esc_min())          # el mínimo depende de la escala: primero la de arranque
         self._ir_al_minimo()
 
     def _ir_al_minimo(self):
@@ -80,7 +149,7 @@ class EscalaMixin:
         def _pasada():
             if gen != self._gen_esquina:               # se apretó otra vez: manda la pasada nueva
                 return
-            self._aplicar_escala(ESC_MIN)
+            self._aplicar_escala(self._esc_min())
             QApplication.processEvents()
             self.layout().activate() if self.layout() is not None else None
             self.resize(self.minimumSizeHint())
@@ -121,7 +190,7 @@ class EscalaMixin:
     def _splitter_movido(self, *_):
         tot = sum(self.split.sizes())
         if tot > 0:
-            self._ratio_lista = self.split.sizes()[0] / tot
+            self._ancho_lista_base = self.split.sizes()[0] / max(self._esc_actual, 1e-6)      # lo que acomodó el usuario, en unidades de escala 1.0
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
@@ -130,13 +199,20 @@ class EscalaMixin:
 
     def _escalar_segun_ventana(self):
         s = min(self.width() / self.ESC_BASE_W, self.height() / self.ESC_BASE_H)
-        s = max(ESC_MIN, min(1.6, int(s * 50) / 50.0))      # hacia abajo: nunca más grande que la ventana
+        s = max(self._esc_min(), min(1.6, int(s * 50) / 50.0))      # hacia abajo: nunca más grande que la ventana
         if abs(s - self._esc_actual) > 1e-9:
             self._aplicar_escala(s)
         tot = sum(self.split.sizes())
         if tot > 0:
-            a = int(round(tot * self._ratio_lista))
-            self.split.setSizes([a, tot - a])
+            self._fijar_ancho_lista(tot)
+
+    def _fijar_ancho_lista(self, tot=None):
+        """La lista de temas queda chica y de ancho fijo (solo cambia con la escala): al maximizar, todo el espacio que
+        sobra va al resto de la ventana (decks, paneles y timeline)."""
+        tot = tot or sum(self.split.sizes())
+        base = getattr(self, "_ancho_lista_base", None) or ANCHO_LISTA
+        a = max(self.split.widget(0).minimumWidth(), int(round(base * self._esc_actual)))
+        self.split.setSizes([a, max(tot - a, 1)])
 
     def _aplicar_escala(self, s):
         MAX = 16777215
@@ -163,6 +239,16 @@ class EscalaMixin:
             try:
                 lay.setContentsMargins(r(l), r(t), r(ri), r(b))
                 if sp >= 0: lay.setSpacing(r(sp))
+            except RuntimeError:
+                pass
+        pc = getattr(self, "panel_cruce", None)
+        if pc is not None:                               # el panel "Forma de cruce A/B" no baja del ancho que piden sus controles
+            try:
+                if pc.layout() is not None:
+                    pc.layout().invalidate(); pc.ensurePolished()
+                ancho_min = max(r(PANEL_CRUCE_MIN_W), PANEL_CRUCE_MIN_W, pc.minimumSizeHint().width())
+                pc.setMinimumWidth(ancho_min)
+                pc.setMaximumWidth(max(r(PANEL_CRUCE_MAX_W), PANEL_CRUCE_MAX_W, ancho_min))
             except RuntimeError:
                 pass
         for gb in self.findChildren(QGroupBox):          # los títulos de grupo se cortaban: recalcular su ancho con la letra nueva

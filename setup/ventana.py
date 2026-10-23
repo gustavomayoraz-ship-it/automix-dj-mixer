@@ -6,7 +6,7 @@ import sounddevice as sd
 from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QSplitter, QVBoxLayout, QWidget
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import QTimer, Qt
-from setup.ajustes import ESC_MIN, fmt_time
+from setup.ajustes import ANCHO_LISTA, ESC_MIN, fmt_time
 from setup.analisis import _cerrar_pool
 from setup.barra import BarraProgresoConMarca
 from setup.base import CONSOLA, log
@@ -142,9 +142,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         central = QWidget()
         split.addWidget(central)
         split.setStretchFactor(0, 0); split.setStretchFactor(1, 1)
-        split.setSizes([500, 1020])
+        split.setSizes([ANCHO_LISTA, 1180])
         split.setChildrenCollapsible(False)
-        panel_lib.setMinimumWidth(500)
+        panel_lib.setMinimumWidth(ANCHO_LISTA)
         root = QVBoxLayout(central)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
@@ -429,7 +429,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self._update_cf()
 
         self._esc_actual = 1.0
-        self._ratio_lista = 500.0 / 1560.0
+        self._ancho_lista_base = None                         # None = el ancho de siempre (ANCHO_LISTA); si el usuario mueve el divisor, se recuerda
         self._esc_timer = QTimer(self)
         self._esc_timer.setSingleShot(True)
         self._esc_timer.timeout.connect(self._escalar_segun_ventana)
@@ -441,11 +441,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         # (antes se usaba un 1560x850 fijo y, al agregar paneles, el mínimo pasaba la pantalla).
         # El tamaño inicial es el MÍNIMO que soporta el formulario con las letras ya en su tamaño normal
         # (escala 1.0): ni más grande, ni con letras diminutas.
-        self._aplicar_escala(ESC_MIN)
-        mh = self.minimumSizeHint()
-        self.ESC_BASE_W = mh.width() / ESC_MIN * 1.05    # +5 % de holgura: el mínimo no crece exacto con la escala
-        self.ESC_BASE_H = mh.height() / ESC_MIN * 1.05
-        self.resize(mh)
+        self._ajustar_escala_pantalla()                   # escala mínima: 0,6 normalmente; menor (o modo compacto) si la pantalla es chica (ej. 1366x768)
         try:                                                  # nace ya en la esquina superior izquierda (antes de mostrarse): sin salto desde el centro
             _ag = (self.screen() or QApplication.primaryScreen()).availableGeometry()
             self.move(_ag.left() + 4, _ag.top() + 4)
@@ -559,6 +555,36 @@ def _mensajes_qt(tipo, ctx, msg):
 
 
 
+def _avisar_sin_audio(app, splash, error):
+    """Muestra un aviso claro cuando no se puede abrir la salida de audio (en vez de cerrarse con un traceback)."""
+    from PySide6.QtWidgets import QMessageBox
+    try:
+        n_salidas = sum(1 for d in sd.query_devices() if d["max_output_channels"] > 0)
+    except Exception:
+        n_salidas = 0
+    log("audio", f"no se pudo abrir la salida de audio ({error}) · salidas detectadas: {n_salidas}")
+    if splash is not None:
+        try: splash.close()
+        except Exception: pass
+    if n_salidas == 0:
+        titulo = "AutoMix · Sin salida de audio"
+        texto = ("Esta PC no tiene ningún dispositivo de audio de salida disponible.\n\n"
+                 "Qué revisar:\n"
+                 "• Que haya placa de sonido y su driver instalado (Administrador de dispositivos).\n"
+                 "• Que conectaste parlantes, auriculares o un monitor con audio HDMI.\n"
+                 "• Que el servicio «Audio de Windows» esté en ejecución.\n"
+                 "• En Sonido > Reproducción, que el dispositivo no esté deshabilitado.\n\n"
+                 "Cuando tengas una salida de audio activa, volvé a abrir AutoMix.")
+    else:
+        titulo = "AutoMix · No se pudo abrir el audio"
+        texto = (f"Hay {n_salidas} salida(s) de audio, pero no se pudo abrir la predeterminada.\n\n"
+                 "Probá elegir otra salida predeterminada en Windows (Sonido > Reproducción), "
+                 "cerrar otros programas que usen el audio en modo exclusivo y volver a abrir AutoMix.")
+    cuadro = QMessageBox(QMessageBox.Icon.Critical, titulo, texto)
+    cuadro.setDetailedText(str(error))
+    cuadro.exec()
+
+
 def main(tiempos=None, splash=None):
     t_ini = time.perf_counter()
     sys.setswitchinterval(0.0005)        # el hilo del audio no espera 5 ms a que la pantalla suelte Python (menos trancadas)
@@ -581,7 +607,12 @@ def main(tiempos=None, splash=None):
         mensaje(splash, "Armando la ventana…")
     except Exception:
         mensaje = None
-    w = AutoMix()
+    try:
+        w = AutoMix()
+    except sd.PortAudioError as e:
+        _avisar_sin_audio(app, splash, e)
+        sys.exit(1)
+    w._ajustar_escala_pantalla()          # se repite con la ventana ya armada (todavía sin mostrar): ahí la medida es la real
     t_v1 = time.perf_counter()
     w.show()
     if splash is not None:
