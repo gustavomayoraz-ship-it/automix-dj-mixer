@@ -484,7 +484,15 @@ class Deck(QFrame):
         if self.original_bpm is None:
             return
         eff = self.original_bpm * self.tempo_rate
-        self.lbl_bpm.setText(f"BPM: {eff:6.2f} (AutoGain: {self.auto_gain:.2f}x)")
+        dif = (self.tempo_rate - 1.0) * 100.0                 # cuánto se movió el tempo respecto del tema original
+        # BPM REAL del tema (el mismo de la lista) ▸ BPM con el que suena ahora (diferencia en %)
+        if abs(dif) < 0.05:
+            self.lbl_bpm.setText(f"BPM: {self.original_bpm:.1f} (sin ajuste)")
+        else:
+            self.lbl_bpm.setText(f"BPM: {self.original_bpm:.1f} ▸ {eff:.2f} ({dif:+.1f}%)")
+        self.lbl_bpm.setToolTip(f"BPM real del tema: {self.original_bpm:.2f}\n"
+                                f"Suena a: {eff:.2f} BPM ({dif:+.2f} % de tempo, para emparejarlo con el otro deck)\n"
+                                f"AutoGain (parejar el volumen del tema): {self.auto_gain:.2f}x")
 
     @property
     def rate_eff(self):
