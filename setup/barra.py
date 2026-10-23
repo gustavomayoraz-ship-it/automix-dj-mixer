@@ -1,5 +1,5 @@
 """AutoMix — barra de progreso con marca de auto-enganche."""
-from PySide6.QtGui import QBrush, QColor, QCursor, QLinearGradient, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QCursor, QFontMetricsF, QLinearGradient, QPainter, QPen, QPolygonF
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtWidgets import QSizePolicy, QWidget
 from setup.ajustes import AJ, FUENTE_BOOST, fmt_time
@@ -62,9 +62,22 @@ class BarraProgresoConMarca(QWidget):
         w, h = self.width(), self.height()
         m = self.MARGEN
 
-        y_top = 2
-        y_prog_t = 8                    # barra más alta y centrada: mismo aire arriba que abajo
-        y_prog_b = h - 8
+        SOBRE = 4                       # cuánto sobresale la marca roja por arriba y por abajo de la barra (igual en los dos lados)
+        # Todo se centra respecto del MARCO real del cuadro (no del widget): el marco deja arriba un hueco para el título,
+        # y centrado en el widget la barra y la marca quedaban más abajo que el medio del marco.
+        par = self.parentWidget(); oy = self.y()
+        if par is not None and par.height() > 0:
+            marco_t, marco_b = 12.0, par.height() - 1.0        # el borde del marco empieza 12 px bajo el tope del cuadro (margin-top del QSS)
+            cy = (marco_t + marco_b) / 2.0 - oy
+            tit_b = marco_t + QFontMetricsF(par.font()).height() / 2.0 + 2.0 - oy      # la barra empieza bajo el texto del título
+        else:
+            cy, tit_b = h / 2.0, 4.0
+        mitad = min(cy - tit_b, cy - SOBRE - 0.5, (h - 1.0) - SOBRE - cy)   # media altura de la barra: la mayor que entra, simétrica
+        mitad = max(8.0, mitad)
+        y_prog_t = cy - mitad
+        y_prog_b = cy + mitad
+        y_top = y_prog_t - SOBRE        # la marca queda centrada exactamente sobre la barra
+        y_bot = y_prog_b + SOBRE
         hh = y_prog_b - y_prog_t
         ancho = w - 2 * m
         rad = min(8.0, hh / 2.0)
@@ -72,7 +85,7 @@ class BarraProgresoConMarca(QWidget):
         p.setPen(QPen(QColor(255, 255, 255, 40), 1))                      # reglita de cuartos
         for f in (0.25, 0.5, 0.75):
             x = self._x_de_frac(f)
-            p.drawLine(int(x), 1, int(x), 5)
+            p.drawLine(int(x), 0, int(x), 3)
 
         fondo = QLinearGradient(0, y_prog_t, 0, y_prog_b)
         fondo.setColorAt(0.0, QColor("#04060b")); fondo.setColorAt(1.0, QColor("#0d1220"))
@@ -113,12 +126,12 @@ class BarraProgresoConMarca(QWidget):
             xm = self._x_de_frac(self.marca)
             rojo = QColor(TEMA["rojo"])
             p.setPen(QPen(QColor(rojo.red(), rojo.green(), rojo.blue(), 60), 9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))   # resplandor
-            p.drawLine(QPointF(xm, y_top + 4), QPointF(xm, h - 4))
-            p.setPen(QPen(QColor(0, 0, 0, 200), 4)); p.drawLine(QPointF(xm, y_top), QPointF(xm, h - 2))
-            p.setPen(QPen(rojo, 2.2)); p.drawLine(QPointF(xm, y_top), QPointF(xm, h - 2))
+            p.drawLine(QPointF(xm, y_top + 4), QPointF(xm, y_bot - 4))
+            p.setPen(QPen(QColor(0, 0, 0, 200), 4)); p.drawLine(QPointF(xm, y_top), QPointF(xm, y_bot))
+            p.setPen(QPen(rojo, 2.2)); p.drawLine(QPointF(xm, y_top), QPointF(xm, y_bot))
             p.setBrush(QBrush(rojo)); p.setPen(QPen(QColor(0, 0, 0, 220), 1))
-            p.drawPolygon(QPolygonF([QPointF(xm - 7, y_top - 1), QPointF(xm + 7, y_top - 1), QPointF(xm, y_top + 8)]))
-            p.drawPolygon(QPolygonF([QPointF(xm - 7, h - 1), QPointF(xm + 7, h - 1), QPointF(xm, h - 9)]))
+            p.drawPolygon(QPolygonF([QPointF(xm - 7, y_top), QPointF(xm + 7, y_top), QPointF(xm, y_top + 8)]))
+            p.drawPolygon(QPolygonF([QPointF(xm - 7, y_bot), QPointF(xm + 7, y_bot), QPointF(xm, y_bot - 8)]))
 
         p.end()
 

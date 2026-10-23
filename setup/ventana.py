@@ -347,9 +347,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
 
         barra_box = QGroupBox("⚓ Auto-enganche — progreso del tema sonando")
         barra_box.setFixedHeight(92)
-        barra_box.setStyleSheet(qss_marco("QGroupBox", TEMA["ambar"]))
+        barra_box.setStyleSheet(qss_marco("QGroupBox", TEMA["ambar"]) + " QGroupBox { padding-top:0px; }")     # sin relleno arriba: la barra puede subir hasta el título
         bl = QHBoxLayout(barra_box)
-        bl.setContentsMargins(8, 6, 8, 4)
+        bl.setContentsMargins(8, 0, 8, 2)
         bl.setSpacing(8)
         self.barra_prog = BarraProgresoConMarca()
         self.barra_prog.set_marca(self._marca_frac)
