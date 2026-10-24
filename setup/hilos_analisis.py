@@ -94,10 +94,11 @@ class AnalizadorBiblioteca(QThread):
     tema_listo = Signal(str)
     terminado = Signal()
 
-    def __init__(self, rutas, forzar=False):
+    def __init__(self, rutas, forzar=False, modo_max=False):
         super().__init__()
         self.rutas = list(rutas)
         self.forzar = forzar
+        self.modo_max = modo_max           # análisis masivo con la ventana de progreso: todos los núcleos, prioridad normal
         self.cancelar = False
 
     def run(self):
@@ -110,12 +111,26 @@ class AnalizadorBiblioteca(QThread):
 
     @staticmethod
     def _num_trabajadores():
-        """Cuántos temas se analizan a la vez: la mitad de los núcleos, entre 1 y 2 (el resto queda para el audio y la ventana)."""
-        return max(1, min(2, (os.cpu_count() or 2) // 2))
+        """Cuántos temas se analizan a la vez: todos los núcleos menos 2 (quedan para el audio y la ventana), entre 1 y 8.
+        Cada análisis corre en su propio proceso (con prioridad baja), así que aprovecha todos los núcleos de verdad."""
+        return max(1, min(8, (os.cpu_count() or 2) - 2))
+
+    def _n_trab(self):
+        if self.modo_max:
+            return max(1, min(12, os.cpu_count() or 2))
+        return self._num_trabajadores()
+
+    def _en_vuelo_max(self, n):
+        """Cuántos análisis puede haber en curso a la vez (corriendo + en cola). Con un deck sonando se baja a lo mínimo
+        (1 por cada 4 trabajadores, al menos 1) para no arriesgar el audio; sin audio, uno más que los trabajadores."""
+        if _SONANDO and not self.modo_max:
+            return max(1, n // 4)
+        return n + 1               # los n trabajadores ocupados + 1 esperando: la cola es corta, así al empezar a sonar un deck casi no queda trabajo en curso
 
     def _analizar_todo(self):
         self._hechos = set()
-        n = self._num_trabajadores()
+        n = self._n_trab()
+        self.n_procesos = n
         if n >= 2 and len(self.rutas) >= 3:
             try:
                 self._analizar_paralelo(n)
@@ -144,14 +159,25 @@ class AnalizadorBiblioteca(QThread):
         from setup import analisis as an
         if an._CALENTADO:
             return
+        intentos = 0
         for i, ruta in enumerate(self.rutas, 1):
             if self.cancelar:
                 return
-            tarea, key = self._tarea(ruta)
+            try:
+                tarea, key = self._tarea(ruta)
+            except Exception:
+                continue
             if tarea is None:
                 continue
             t0 = time.monotonic()
-            res = an.analizar_archivo(ruta, solo_clave=(tarea == "clave"))
+            intentos += 1
+            try:
+                res = an.analizar_archivo(ruta, solo_clave=(tarea == "clave"))
+            except Exception as e:                   # un archivo dañado no debe tumbar el análisis en paralelo: se prueba con otro
+                print(f"[análisis] no se pudo calentar con {os.path.basename(ruta)}: {e}")
+                if intentos >= 6:
+                    return
+                continue
             if tarea == "full":
                 _guardar_cache(key, res)
                 print(f"Analizado: {os.path.basename(ruta)} -> {res['bpm']:.1f} BPM, clave {(res.get('key') or {}).get('camelot') or '?'}")
@@ -170,6 +196,8 @@ class AnalizadorBiblioteca(QThread):
         import multiprocessing
         from setup.analisis import TIMEOUT_ANALISIS, _analizar_archivo, _analizar_clave, _bajar_prioridad
         self._calentar()
+        for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS"):
+            os.environ.setdefault(_v, "1")          # cada proceso usa UN hilo de cálculo: con varios procesos a la vez, no se pisan entre sí
         ctx = multiprocessing.get_context("spawn")
         pw = Path(sys.executable).with_name("pythonw.exe")             # el hijo no abre ventana negra
         if os.name == "nt" and pw.exists():
@@ -177,13 +205,17 @@ class AnalizadorBiblioteca(QThread):
         total = len(self.rutas)
         print(f"[análisis] biblioteca: {n} temas a la vez (prioridad baja)")
         pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad)
+        if self.modo_max:
+            os.environ["AUTOMIX_ANALISIS_MAX"] = "1"        # los procesos hijos heredan esto y NO bajan su prioridad
+        else:
+            os.environ.pop("AUTOMIX_ANALISIS_MAX", None)
         pend = deque()                      # (i, ruta, cache_key, tarea, futuro, t0), en el orden de la lista
         sig = iter(enumerate(self.rutas, 1))
         agotada = False
         falla = None
         try:
             while True:
-                while (not agotada and len(pend) < (1 if _SONANDO else n * 2) and not self.cancelar and _PRIORITARIOS == 0):
+                while (not agotada and len(pend) < self._en_vuelo_max(n) and not self.cancelar and _PRIORITARIOS == 0):
                     nxt = next(sig, None)
                     if nxt is None:
                         agotada = True

@@ -182,12 +182,22 @@ def _limpiar_cache_numba():
 def _bajar_prioridad():
     """Se ejecuta dentro de cada proceso que analiza la biblioteca: prioridad baja, así el audio y la ventana no se traban."""
     try:
-        if os.name == "nt":
+        if os.environ.get("AUTOMIX_ANALISIS_MAX") == "1":
+            pass                                           # análisis masivo con la ventana de progreso: a máxima velocidad
+        elif os.name == "nt":
             import ctypes
             k = ctypes.windll.kernel32
-            k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)       # BELOW_NORMAL
+            # PROCESS_MODE_BACKGROUND_BEGIN: el proceso pasa a "segundo plano" de verdad (CPU, DISCO y memoria con prioridad mínima):
+            # no le saca disco ni procesador a la música que suena ni a la ventana. Si no se puede, prioridad baja común.
+            if not k.SetPriorityClass(k.GetCurrentProcess(), 0x00100000):
+                k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)       # BELOW_NORMAL
         else:
             os.nice(10)
+    except Exception:
+        pass
+    try:                                                   # un solo hilo de cálculo por proceso (ya hay un proceso por núcleo)
+        from threadpoolctl import threadpool_limits
+        threadpool_limits(1)
     except Exception:
         pass
 

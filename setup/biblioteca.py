@@ -359,6 +359,16 @@ class Biblioteca(QListWidget):
         self._refrescar_textos()
         self.pintar(*self._ult_pintado) if getattr(self, "_ult_pintado", None) else None
 
+    def quitar_de_cola_lote(self, rutas):
+        """Igual que quitar_de_cola pero para varios temas: la lista se recorre y se repinta UNA sola vez
+        (con miles de temas, hacerlo por cada tema analizado dejaba la ventana trabada)."""
+        for ruta in rutas:
+            k = self._clave(ruta)
+            self._memo.pop(k, None); self._memo_frase.pop(k, None); self._memo_voz.pop(k, None)
+            self._cola.discard(k)
+        self._refrescar_textos()
+        self.pintar(*self._ult_pintado) if getattr(self, "_ult_pintado", None) else None
+
     def info(self, ruta):
         """(bpm, clave Camelot, nombre de la nota, hay_clave) del tema, desde su caché de análisis."""
         k = self._clave(ruta)
@@ -558,7 +568,14 @@ class Biblioteca(QListWidget):
     def limpiar(self):
         log("biblioteca", "lista vaciada")
         self._carga = None; self._cargando_lib = False          # (si todavía se estaba cargando al abrir, se cancela)
-        self.clear(); self._rutas.clear(); self._cola.clear(); self.cambio.emit()
+        bs = self.blockSignals(True)                 # con miles de temas, cada fila borrada disparaba señales y repintados (30+ s)
+        self.setUpdatesEnabled(False)
+        try:
+            self.clear()
+        finally:
+            self.blockSignals(bs)
+            self.setUpdatesEnabled(True)
+        self._rutas.clear(); self._cola.clear(); self.cambio.emit()
 
     def pintar(self, ruta_a, ruta_b):
         self._ult_pintado = (ruta_a, ruta_b)

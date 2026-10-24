@@ -106,7 +106,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_ordenar = QPushButton("🔃 Ordenar por BPM")
         self.btn_ordenar.clicked.connect(self._ordenar_biblioteca_bpm)
         self.btn_reanalizar = QPushButton("🔄 Re-analizar")
-        self.btn_reanalizar.setToolTip("Vuelve a analizar el BPM de TODOS los temas de la lista (guía: el BPM del nombre del archivo)")
+        self.btn_reanalizar.setToolTip("Si hay temas sin analizar, los analiza a máxima velocidad (ventanita con el avance, el reproductor se oculta); si no hay pendientes no hace nada (Ctrl + clic = volver a analizar TODO desde cero)")
         self.btn_reanalizar.clicked.connect(self._reanalizar_biblioteca)
         lib_btns.addWidget(b_limpiar); lib_btns.addWidget(self.btn_ordenar)
         lib_btns.addWidget(self.btn_reanalizar)

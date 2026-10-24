@@ -7,7 +7,10 @@ from setup.analisis import _mantener_vivo
 from setup.base import log
 from setup.config import guardar_config, leer_config
 from setup.deck import Deck
+from setup.dialogo_analisis import DialogoAnalisis
 from setup.hilos_analisis import AnalizadorBiblioteca
+
+UMBRAL_MASIVO = 100        # a partir de esta cantidad de temas por analizar aparece la ventana de análisis a máxima velocidad
 
 
 class BibliotecaMixin:
@@ -17,22 +20,88 @@ class BibliotecaMixin:
     _analizador_bib = None
     _fallidos = None
     _ordenar_al_terminar = False
+    _modo_siguiente = None            # 'max' / 'suave': al terminar el análisis en curso (cancelado a propósito) se reinicia en ese modo
+    _dlg_analisis = None
+    _oculta_por_analisis = False
 
     def _analisis_en_curso(self):
         return self._analizador_bib is not None and self._analizador_bib.isRunning()
 
-    def _iniciar_analisis(self, rutas, forzar, fin, texto):
+    def _iniciar_analisis(self, rutas, forzar, fin, texto, masivo=False):
+        self._dlg_analisis = None
+        if masivo:
+            n = max(1, min(12, os.cpu_count() or 2))
+            base = 0 if forzar else max(0, len(self.biblioteca.todas()) - len(rutas))     # los ya analizados cuentan en el avance
+            dlg = self._dlg_analisis = DialogoAnalisis(None, len(rutas), n, permitir_fondo=not forzar, base=base)
+            dlg.show(); dlg.raise_(); dlg.activateWindow()
+            self._oculta_por_analisis = self.isVisible()
+            self.hide()                                       # el reproductor se oculta mientras se analiza a máxima velocidad
+            QApplication.processEvents()                      # que se vea la ventana antes del trabajo pesado de marcar la lista
         self.biblioteca.marcar(rutas)
-        a = AnalizadorBiblioteca(rutas, forzar=forzar)
+        a = AnalizadorBiblioteca(rutas, forzar=forzar, modo_max=masivo)
         _mantener_vivo(a)
+        self._lote_listos = []
+        if masivo:
+            a.progreso.connect(dlg.poner)
+            dlg.cancelar.connect(lambda: setattr(a, "cancelar", True))
+            dlg.segundo_plano.connect(lambda: self._pasar_a_modo("suave"))
+        elif not forzar:
+            self.btn_reanalizar.setText("⚡ Acelerar")
+            self.btn_reanalizar.setToolTip("Pasa el análisis a máxima velocidad: aparece una ventanita con el avance y el reproductor se oculta hasta que termine")
         a.progreso.connect(lambda i, t: self._set_status(f"{texto}: {i}/{t}"))
-        a.tema_listo.connect(self.biblioteca.quitar_de_cola)
-        a.tema_listo.connect(lambda _r: self._actualizar_titulo_lib())      # Biblioteca (5/17)
-        a.tema_listo.connect(lambda _r: self._reordenar_pronto())          # la lista se va ordenando a medida que se analiza
+        a.tema_listo.connect(self._tema_analizado)        # los temas terminados se acumulan y la lista se actualiza por lotes
         a.terminado.connect(fin)
         self._analizador_bib = a
         self._actualizar_titulo_lib()
         a.start()
+
+    def _ms_lote(self):
+        """Cada cuánto se actualiza la lista con los temas ya analizados: casi enseguida si la lista es chica; con miles de
+        temas, cada actualización recorre toda la lista (0,2-0,4 s), así que se hace cada pocos segundos."""
+        n = self.biblioteca.count()
+        if n < 800:
+            return 600
+        try:
+            from setup import hilos_analisis as _ha
+            if _ha._SONANDO:
+                return 15000                  # con música sonando, el repintado de la lista (miles de filas) se hace pocas veces
+        except Exception:
+            pass
+        return min(4000, 600 + n // 3)
+
+    def _tema_analizado(self, ruta):
+        """Un tema terminó su análisis: se anota y se actualiza la lista en el próximo lote (no uno por uno)."""
+        if not hasattr(self, "_lote_listos") or self._lote_listos is None:
+            self._lote_listos = []
+        self._lote_listos.append(ruta)
+        if getattr(self, "_dlg_analisis", None) is not None:
+            return                                            # análisis masivo: la lista se actualiza una sola vez, al final
+        t = getattr(self, "_t_lote", None)
+        if t is None:
+            t = self._t_lote = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._vaciar_lote)
+        if not t.isActive():
+            t.start(self._ms_lote())
+
+    def _vaciar_lote(self):
+        """Actualiza la lista de una vez con todos los temas analizados desde el último lote."""
+        rutas, self._lote_listos = (getattr(self, "_lote_listos", None) or []), []
+        if not rutas:
+            return
+        self.biblioteca.quitar_de_cola_lote(rutas)
+        self._actualizar_titulo_lib()                                    # Biblioteca (5/17)
+        # la lista se va ordenando a medida que se analiza: con miles de temas, como mucho una vez cada 20 s (reordenar cuesta)
+        n = self.biblioteca.count()
+        if n < 800:
+            ms_ord = 600
+        else:
+            try:
+                from setup import hilos_analisis as _ha
+                ms_ord = 60000 if _ha._SONANDO else 20000      # reordenar miles de temas cuesta: menos seguido si hay música sonando
+            except Exception:
+                ms_ord = 20000
+        self._reordenar_pronto(ms_ord, fijo=True)
 
     def _pendientes(self):
         if self._fallidos is None:
@@ -40,8 +109,37 @@ class BibliotecaMixin:
         return [r for r in self.biblioteca.temas_sin_analisis()
                 if self.biblioteca._clave(r) not in self._fallidos and os.path.isfile(r)]
 
-    def _auto_analizar(self):
-        """Los temas nuevos de la lista se analizan solos (se ven con ⏳ hasta que terminan)."""
+    def _cerrar_dlg(self, dlg):
+        """Cierra la ventanita del análisis y devuelve el reproductor. Primero el reproductor: si no, al cerrarse la
+        última ventana visible el programa entero se cerraría."""
+        try:
+            if self._oculta_por_analisis or not self.isVisible():
+                self.show()
+            self._oculta_por_analisis = False
+            self.raise_(); self.activateWindow()
+        finally:
+            dlg.btn.setEnabled(False); dlg.btn_fondo.setEnabled(False)
+            dlg.close(); dlg.deleteLater()
+
+    def _pasar_a_modo(self, modo):
+        """Con un análisis en curso: lo detiene a propósito y lo reinicia en 'max' (ventanita, a toda velocidad) o 'suave' (segundo plano)."""
+        a = self._analizador_bib
+        if a is None or not a.isRunning():
+            return
+        self._modo_siguiente = modo
+        a.cancelar = True
+
+    def _reiniciar_analisis(self, modo, intentos=0):
+        if self._analisis_en_curso() and intentos < 75:       # esperar a que el hilo anterior termine de cerrarse
+            QTimer.singleShot(200, lambda: self._reiniciar_analisis(modo, intentos + 1))
+            return
+        self._auto_analizar(modo)
+
+    def _auto_analizar(self, modo=None):
+        """Los temas nuevos de la lista se analizan solos (se ven con ⏳ hasta que terminan).
+        modo: None = automático (ventanita si son más de UMBRAL_MASIVO y no suena nada), 'max' = a máxima velocidad, 'suave' = segundo plano."""
+        if not isinstance(modo, str):
+            modo = None
         if self.biblioteca._cargando_lib:                    # la lista todavía se está cargando al abrir: cuando termine, avisa sola
             return
         if self._analisis_en_curso():
@@ -51,11 +149,41 @@ class BibliotecaMixin:
             self._ordenar_al_terminar = False
             return
         self._set_status(f"⏳ Analizando {len(faltan)} temas (BPM)…")
-        self._iniciar_analisis(faltan, False, self._fin_analisis, "⏳ Analizando BPM")
+        sonando = bool(self.deck_a.playing or self.deck_b.playing)
+        if modo == "suave":
+            masivo = False
+        elif modo == "max":
+            masivo = not sonando
+        else:
+            masivo = len(faltan) > UMBRAL_MASIVO and not sonando     # (con música sonando se analiza en modo suave)
+        self._iniciar_analisis(faltan, False, self._fin_analisis, "⏳ Analizando BPM", masivo=masivo)
 
     def _fin_analisis(self):
+        dlg = getattr(self, "_dlg_analisis", None)
+        modo, self._modo_siguiente = self._modo_siguiente, None
+        self.btn_reanalizar.setText("🔄 Re-analizar")
+        self.btn_reanalizar.setToolTip("Si hay temas sin analizar, los analiza a máxima velocidad (ventanita con el avance, el reproductor se oculta); si no hay pendientes no hace nada (Ctrl + clic = volver a analizar TODO desde cero)")
+        if dlg is not None:
+            dlg.fase("Actualizando la lista…" if modo else "Actualizando y ordenando la lista…")
+            QApplication.processEvents()
+            self._dlg_analisis = None                         # a partir de acá la lista se actualiza normal
+        self._vaciar_lote()                                   # los últimos temas analizados
         self.biblioteca.marcar(())
+        if dlg is not None:
+            if not modo:
+                try:
+                    self._ordenar_lista()                     # orden final, con la ventana de progreso todavía a la vista
+                except Exception:
+                    import traceback; traceback.print_exc()
+                self._ordenar_al_terminar = False
+            self._cerrar_dlg(dlg)
+        elif not modo:
+            self._reordenar_pronto(300)                       # orden final con todo lo analizado
         self._actualizar_titulo_lib()
+        if modo:                                              # cancelado a propósito para cambiar de modo: se sigue con lo que falta
+            self._set_status("⚡ Analizando a máxima velocidad…" if modo == "max" else "⏬ Analizando en segundo plano…")
+            self._reiniciar_analisis(modo)
+            return
         if self._fallidos is None:
             self._fallidos = set()
         hechos = {self.biblioteca._clave(r) for r in (getattr(getattr(self, "_analizador_bib", None), "rutas", None) or ())}
@@ -85,13 +213,16 @@ class BibliotecaMixin:
         inicio = prim.path if (prim is not None and prim.path) else None
         self.biblioteca.ordenar_inteligente(arm, fra, inicio)
 
-    def _reordenar_pronto(self, ms=600):
-        """Reordena la lista (con retardo, para agrupar varios cambios) a medida que se analizan los temas."""
+    def _reordenar_pronto(self, ms=600, fijo=False):
+        """Reordena la lista (con retardo, para agrupar varios cambios) a medida que se analizan los temas.
+        Con fijo=True, si ya hay un reordenado programado no se reprograma (así corre cada `ms` aunque lleguen cambios sin parar)."""
         t = getattr(self, "_t_reordenar", None)
         if t is None:
             t = self._t_reordenar = QTimer(self)
             t.setSingleShot(True)
             t.timeout.connect(self._reordenar_ahora)
+        if fijo and t.isActive():
+            return
         t.start(ms)
 
     def _reordenar_ahora(self):
@@ -161,23 +292,57 @@ class BibliotecaMixin:
         self._iniciar_analisis(faltan, False, self._fin_analisis, "⏳ Analizando BPM")
 
     def _reanalizar_biblioteca(self):
+        sonando = bool(self.deck_a.playing or self.deck_b.playing)
         if self._analizador_bib is not None and self._analizador_bib.isRunning():
-            if self._analizador_bib.forzar:                       # segundo clic = cancelar
-                self._analizador_bib.cancelar = True
+            a = self._analizador_bib
+            if a.forzar:                                          # re-análisis completo en curso: segundo clic = cancelar
+                a.cancelar = True
                 self._set_status("⏹ Cancelando re-análisis…")
+            elif getattr(a, "modo_max", False):
+                pass                                              # ya va a máxima velocidad (la ventanita está a la vista)
+            elif sonando:
+                self._set_status("🔇 Pausá la música para analizar a máxima velocidad (el reproductor se oculta)")
             else:
-                self._set_status("⏳ Analizando biblioteca…")
+                self._set_status("⚡ Pasando a máxima velocidad…")
+                self._pasar_a_modo("max")                         # análisis normal en curso → a toda velocidad con la ventanita
+            return
+        self._fallidos = set()                                    # lo que quedó sin analizar (cancelado, etc.) se vuelve a intentar
+        desde_cero = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)      # Ctrl + clic = volver a analizar TODO
+        if self._pendientes() and not desde_cero:
+            if sonando:
+                self._set_status("🔇 Pausá la música para analizar a máxima velocidad (el reproductor se oculta)")
+                return
+            self._auto_analizar("max")
             return
         rutas = self.biblioteca.todas()
         if not rutas:
             self._set_status("La lista está vacía")
             return
-        self._set_status(f"🔄 Re-analizando {len(rutas)} temas… (clic otra vez en el botón para cancelar)")
-        self.btn_reanalizar.setText("⏹ Cancelar")
-        self._iniciar_analisis(rutas, True, self._fin_reanalisis, "🔄 Re-analizando BPM")
+        if not desde_cero:
+            self._set_status("✅ Todo está analizado (Ctrl + clic en el botón para volver a analizar todo desde cero)")
+            return
+        masivo = len(rutas) > UMBRAL_MASIVO and not sonando
+        if masivo:
+            self._set_status(f"🔄 Re-analizando {len(rutas)} temas a máxima velocidad…")
+        else:
+            self._set_status(f"🔄 Re-analizando {len(rutas)} temas… (clic otra vez en el botón para cancelar)")
+            self.btn_reanalizar.setText("⏹ Cancelar")
+        self._iniciar_analisis(rutas, True, self._fin_reanalisis, "🔄 Re-analizando BPM", masivo=masivo)
 
     def _fin_reanalisis(self):
+        dlg = getattr(self, "_dlg_analisis", None)
+        if dlg is not None:
+            dlg.fase("Actualizando y ordenando la lista…")
+            QApplication.processEvents()
+            self._dlg_analisis = None
+            self._vaciar_lote()
         self.biblioteca.marcar(())
+        if dlg is not None:
+            try:
+                self._ordenar_lista()
+            except Exception:
+                import traceback; traceback.print_exc()
+            self._cerrar_dlg(dlg)
         cancelado = bool(self._analizador_bib and self._analizador_bib.cancelar)
         self.btn_reanalizar.setText("🔄 Re-analizar")
         self._set_status("⏹ Re-análisis cancelado" if cancelado else
@@ -196,14 +361,21 @@ class BibliotecaMixin:
         total = len(self.biblioteca.todas())
         pend = len(self.biblioteca._cola)
         if pend and pend <= total:
-            self.lbl_lib.setText(f"📁 Biblioteca ({total - pend}/{total})")
+            hechos = total - pend
+            self.lbl_lib.setText(f"📁 Biblioteca ({hechos}/{total})")
+            self.setWindowTitle(f"AutoMix 🎚️  —  🔬 Analizando {hechos:,} / {total:,}  ({100 * hechos // max(1, total)} %)".replace(",", "."))
         else:
             self.lbl_lib.setText(f"📁 Biblioteca ({total})")
+            self.setWindowTitle("AutoMix 🎚️")
 
     def _biblioteca_cambio(self):
         self._actualizar_titulo_lib()
         self.biblioteca.guardar()
         if self.biblioteca.count() == 0:
+            an = self._analizador_bib
+            if an is not None and an.isRunning():
+                an.cancelar = True                   # lista vaciada: no se sigue analizando temas que ya no están
+            self._lote_listos = []
             self._vaciar_decks()
 
     def _vaciar_decks(self):
