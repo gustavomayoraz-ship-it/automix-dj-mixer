@@ -1,6 +1,7 @@
 """AutoMix — lista de temas (biblioteca)."""
 from pathlib import Path
 import json
+import functools
 import os
 import re
 import stat
@@ -84,6 +85,26 @@ def _reagrupa(f):
     return w
 
 
+def _hay_musica():
+    """True si algún deck está sonando (la ventana lo anota en hilos_analisis._SONANDO)."""
+    try:
+        from setup import hilos_analisis as _ha
+        return bool(_ha._SONANDO)
+    except Exception:
+        return False
+
+
+@functools.lru_cache(maxsize=100000)
+def _clave_memo(p):
+    """normcase(abspath) de una ruta, con memoria: en Windows es lento (Python puro) y con miles de temas se pedía miles de veces por pasada."""
+    return os.path.normcase(os.path.abspath(p))
+
+
+@functools.lru_cache(maxsize=100000)
+def _carpeta_memo(ruta):
+    return os.path.normcase(os.path.dirname(os.path.abspath(ruta)))
+
+
 class Biblioteca(QListWidget):
     aviso = Signal(str)        # mensaje para la barra de estado (p. ej. duplicados omitidos)
     cambio = Signal()
@@ -155,7 +176,7 @@ class Biblioteca(QListWidget):
 
     @staticmethod
     def _clave(p):
-        return os.path.normcase(os.path.abspath(p))
+        return _clave_memo(p)
 
     @staticmethod
     def _firma(p, tam=None):
@@ -180,7 +201,7 @@ class Biblioteca(QListWidget):
 
     @staticmethod
     def _carpeta(ruta):
-        return os.path.normcase(os.path.dirname(os.path.abspath(ruta)))
+        return _carpeta_memo(ruta)
 
     def _quitar_cab(self):
         for i in range(self.count() - 1, -1, -1):
@@ -717,7 +738,8 @@ class Biblioteca(QListWidget):
         self.setUpdatesEnabled(False)
         try:
             rutas = c["rutas"]
-            while c["i"] < len(rutas) and time.perf_counter() - t0 < 0.03:        # ~30 ms por tanda: la ventana sigue respondiendo
+            lim = 0.012 if _hay_musica() else 0.03                                # ~30 ms por tanda (12 ms si suena música: así el audio no se corta)
+            while c["i"] < len(rutas) and time.perf_counter() - t0 < lim:
                 p = rutas[c["i"]]; c["i"] += 1
                 if not p.lower().endswith(SUPPORTED):
                     continue
@@ -743,16 +765,26 @@ class Biblioteca(QListWidget):
             c["primera"] = True
             self.primera_tanda.emit()
         if c["i"] < len(c["rutas"]):
-            QTimer.singleShot(0, self._cargar_tanda)
+            QTimer.singleShot(4 if _hay_musica() else 0, self._cargar_tanda)
             return
         self._carga = None                                   # todos los temas ya están en la lista
         log("biblioteca", f"+{c['n']} tema(s) agregado(s) · total {self.count()}")
         threading.Thread(target=self._precargar_info, args=(self.todas(),), daemon=True).start()    # BPM / tono de cada tema, sin trabar la ventana
 
     def _precargar_info(self, rutas):
+        """Lee el BPM/tono de cada tema (miles de .json) en un hilo. Leer un .json grande retiene Python unos milisegundos: si suena música,
+        la lectura va de a poco (soltando Python seguido) para que el audio no se corte ('rrrr'); sin música va a toda velocidad."""
         try:
-            for r in rutas:
+            try:
+                from setup import hilos_analisis as _ha
+            except Exception:
+                _ha = None
+            for n, r in enumerate(rutas):
                 self.info(r)
+                if _ha is not None and _ha._SONANDO:
+                    time.sleep(0.008)
+                elif n % 8 == 0:
+                    time.sleep(0.001)
         except Exception:
             pass
         self._precarga_lista.emit()                          # (vuelve al hilo de la ventana)
