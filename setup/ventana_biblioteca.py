@@ -37,7 +37,7 @@ class BibliotecaMixin:
     def _iniciar_analisis(self, rutas, forzar, fin, texto, masivo=False):
         self._dlg_analisis = None
         if masivo:
-            n = max(1, min(12, os.cpu_count() or 2))
+            n = AnalizadorBiblioteca._limitar_por_ram(max(1, min(12, os.cpu_count() or 2)))
             base = 0 if forzar else max(0, len(self.biblioteca.todas()) - len(rutas))     # los ya analizados cuentan en el avance
             dlg = self._dlg_analisis = DialogoAnalisis(None, len(rutas), n, permitir_fondo=not forzar, base=base)
             dlg.show(); dlg.raise_(); dlg.activateWindow()

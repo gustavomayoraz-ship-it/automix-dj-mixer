@@ -89,6 +89,29 @@ class Analyzer(QThread):
 
 
 
+def _ram_libre_gb():
+    """Memoria RAM disponible en GB (Windows: GlobalMemoryStatusEx, sin librerías extra; Linux: /proc/meminfo). None si no se puede leer."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class _MEM(ctypes.Structure):
+                _fields_ = [("largo", ctypes.c_ulong), ("uso", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                            ("libre", ctypes.c_ulonglong), ("pf_total", ctypes.c_ulonglong), ("pf_libre", ctypes.c_ulonglong),
+                            ("v_total", ctypes.c_ulonglong), ("v_libre", ctypes.c_ulonglong), ("v_ext", ctypes.c_ulonglong)]
+            m = _MEM(); m.largo = ctypes.sizeof(_MEM)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+                return m.libre / 2 ** 30
+            return None
+        with open("/proc/meminfo", encoding="ascii") as f:
+            for linea in f:
+                if linea.startswith("MemAvailable:"):
+                    return int(linea.split()[1]) / 2 ** 20
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
 class AnalizadorBiblioteca(QThread):
     progreso = Signal(int, int)
     tema_listo = Signal(str)
@@ -111,16 +134,25 @@ class AnalizadorBiblioteca(QThread):
             self.terminado.emit()          # pase lo que pase, la lista se ordena con lo que haya
 
     @staticmethod
+    def _limitar_por_ram(n):
+        """Cada análisis ocupa ~1 a 2 GB de RAM (temas largos más): con la memoria casi llena la PC se traba por completo.
+        Se baja la cantidad de procesos para que quede ~1,5 GB libre por proceso y al menos 2 GB libres para el sistema."""
+        libre = _ram_libre_gb()
+        if libre is None:
+            return n
+        return max(1, min(n, int((libre - 2.0) // 1.5)))
+
+    @staticmethod
     def _num_trabajadores():
         """Cuántos temas se analizan a la vez: todos los núcleos menos 2 (quedan para el audio y la ventana), entre 1 y 8.
         Cada análisis corre en su propio proceso (con prioridad baja), así que aprovecha todos los núcleos de verdad."""
-        return max(1, min(8, (os.cpu_count() or 2) - 2))
+        return AnalizadorBiblioteca._limitar_por_ram(max(1, min(8, (os.cpu_count() or 2) - 2)))
 
     def _n_trab(self):
         if self.modo_max:
             if self.aparte:
-                return max(1, min(10, (os.cpu_count() or 2) - 2))
-            return max(1, min(12, os.cpu_count() or 2))
+                return self._limitar_por_ram(max(1, min(10, (os.cpu_count() or 2) - 2)))
+            return self._limitar_por_ram(max(1, min(12, os.cpu_count() or 2)))
         return self._num_trabajadores()
 
     def _en_vuelo_max(self, n):
