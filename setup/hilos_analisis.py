@@ -94,10 +94,11 @@ class AnalizadorBiblioteca(QThread):
     tema_listo = Signal(str)
     terminado = Signal()
 
-    def __init__(self, rutas, forzar=False, modo_max=False):
+    def __init__(self, rutas, forzar=False, modo_max=False, aparte=False):
         super().__init__()
         self.rutas = list(rutas)
         self.forzar = forzar
+        self.aparte = aparte               # corre en el programa aparte (AnalizadorAutoMix.py): a toda velocidad pero dejando 2 núcleos y con prioridad algo menor, para que el resto del equipo siga respondiendo
         self.modo_max = modo_max           # análisis masivo con la ventana de progreso: todos los núcleos, prioridad normal
         self.cancelar = False
 
@@ -117,6 +118,8 @@ class AnalizadorBiblioteca(QThread):
 
     def _n_trab(self):
         if self.modo_max:
+            if self.aparte:
+                return max(1, min(10, (os.cpu_count() or 2) - 2))
             return max(1, min(12, os.cpu_count() or 2))
         return self._num_trabajadores()
 
@@ -132,12 +135,15 @@ class AnalizadorBiblioteca(QThread):
         n = self._n_trab()
         self.n_procesos = n
         if n >= 2 and len(self.rutas) >= 3:
-            try:
-                self._analizar_paralelo(n)
-                return
-            except Exception:
-                import traceback; traceback.print_exc()
-                print("[análisis] el análisis en paralelo falló: se sigue de a un tema")
+            for intento in range(1, 4):                 # si el grupo de procesos se cuelga o cae, se vuelve a armar (hasta 3 veces) antes de pasar a de a un tema
+                try:
+                    self._analizar_paralelo(n)
+                    return
+                except Exception:
+                    import traceback; traceback.print_exc()
+                    if self.cancelar:
+                        return
+                    print(f"[análisis] el análisis en paralelo falló (intento {intento}/3)" + (": se vuelve a armar" if intento < 3 else ": se sigue de a un tema"))
         self._analizar_secuencial()
 
     def _tarea(self, ruta):
@@ -203,12 +209,14 @@ class AnalizadorBiblioteca(QThread):
         if os.name == "nt" and pw.exists():
             ctx.set_executable(str(pw))
         total = len(self.rutas)
-        print(f"[análisis] biblioteca: {n} temas a la vez (prioridad baja)")
-        pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad)
-        if self.modo_max:
-            os.environ["AUTOMIX_ANALISIS_MAX"] = "1"        # los procesos hijos heredan esto y NO bajan su prioridad
+        if self.modo_max and self.aparte:
+            os.environ["AUTOMIX_ANALISIS_MAX"] = "aparte"   # los hijos heredan esto: prioridad "por debajo de lo normal" (se aprovecha todo el procesador libre, pero ceden ante el resto)
+        elif self.modo_max:
+            os.environ["AUTOMIX_ANALISIS_MAX"] = "1"        # los procesos hijos heredan esto y NO bajan su prioridad (se pone ANTES de crear el grupo)
         else:
             os.environ.pop("AUTOMIX_ANALISIS_MAX", None)
+        print(f"[análisis] biblioteca: {n} temas a la vez ({'máxima velocidad' if self.modo_max else 'prioridad baja'})")
+        pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad)
         pend = deque()                      # (i, ruta, cache_key, tarea, futuro, t0), en el orden de la lista
         sig = iter(enumerate(self.rutas, 1))
         agotada = False
@@ -243,10 +251,27 @@ class AnalizadorBiblioteca(QThread):
                     continue
                 i, ruta, key, tarea, fut, t0 = pend.popleft()
                 try:
-                    res = fut.result(timeout=TIMEOUT_ANALISIS)
+                    t_lim = time.monotonic() + TIMEOUT_ANALISIS
+                    cancelado = False
+                    while True:                         # se espera de a 0,25 s: así "Detener" y "Segundo plano" se atienden enseguida (antes había que esperar a que terminara el tema más lento)
+                        try:
+                            res = fut.result(timeout=0.25)
+                            break
+                        except _TO:
+                            if self.cancelar:
+                                cancelado = True
+                                break
+                            if time.monotonic() >= t_lim:
+                                raise
+                    if cancelado:
+                        pend.appendleft((i, ruta, key, tarea, fut, t0))
+                        break
                 except (_TO, BrokenProcessPool) as e:
-                    falla = e               # proceso colgado o caído: se corta el lote y sigue el modo de a uno
+                    falla = e               # proceso colgado o caído: se corta el lote y se vuelve a armar
                     pend.appendleft((i, ruta, key, tarea, fut, t0))
+                    if isinstance(e, _TO):
+                        self._hechos.add(ruta)          # este tema se colgó: no se reintenta
+                        self.progreso.emit(i, total)
                     break
                 except Exception:
                     import traceback; traceback.print_exc()      # ese tema falló: se sigue con los demás

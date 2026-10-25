@@ -19,7 +19,7 @@ class DialogoAnalisis(QDialog):
     cancelar = Signal()
     segundo_plano = Signal()
 
-    def __init__(self, parent, total, procesos=0, permitir_fondo=True, base=0):
+    def __init__(self, parent, total, procesos=0, permitir_fondo=True, base=0, pie=None):
         super().__init__(parent)
         self._base = max(0, base)          # temas que ya estaban analizados antes de esta tanda (el avance se muestra sobre el total de la lista)
         self.setWindowTitle("AutoMix 🎚️ — Analizando biblioteca")
@@ -45,7 +45,7 @@ class DialogoAnalisis(QDialog):
         self.lbl_vel = QLabel("Preparando…"); self.lbl_vel.setStyleSheet(f"color:{T['suave']};")
         lay.addWidget(self.lbl_vel)
         info = f"Usando {procesos} procesos a máxima velocidad. " if procesos else "Máxima velocidad. "
-        pie = QLabel(info + "El reproductor queda oculto hasta que termine."); pie.setWordWrap(True)
+        pie = QLabel(info + (pie or "El reproductor queda oculto hasta que termine.")); pie.setWordWrap(True)
         pie.setStyleSheet(f"color:{T['suave']}; font-size:11px;")
         lay.addWidget(pie)
         fila = QHBoxLayout(); fila.setSpacing(10); fila.addStretch(1)

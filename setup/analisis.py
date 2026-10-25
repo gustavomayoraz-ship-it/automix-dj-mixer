@@ -182,8 +182,13 @@ def _limpiar_cache_numba():
 def _bajar_prioridad():
     """Se ejecuta dentro de cada proceso que analiza la biblioteca: prioridad baja, así el audio y la ventana no se traban."""
     try:
-        if os.environ.get("AUTOMIX_ANALISIS_MAX") == "1":
+        modo = os.environ.get("AUTOMIX_ANALISIS_MAX")
+        if modo == "1":
             pass                                           # análisis masivo con la ventana de progreso: a máxima velocidad
+        elif modo == "aparte" and os.name == "nt":
+            import ctypes
+            k = ctypes.windll.kernel32                     # programa aparte: "por debajo de lo normal" (sigue usando todo el procesador que nadie pida)
+            k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)
         elif os.name == "nt":
             import ctypes
             k = ctypes.windll.kernel32
@@ -724,7 +729,7 @@ def aplicar_uno(res, fase, conf):
 def _analizar_uno(args):
     """Para análisis viejos sin el "1" automático: carga el audio y lo calcula (corre en el proceso aparte)."""
     path, beats = args
-    y, sr = librosa.load(path, sr=22050, mono=True)
+    y, sr = _cargar_mono(path)
     r = detectar_uno(y, sr, beats)
     try:
         kicks = [float(k) for k in detect_kicks(y, sr)]           # los análisis viejos tenían 0 bombos (error ya corregido)
@@ -848,7 +853,7 @@ def analizar_voz(y, sr):
 
 def _analizar_clave(path):
     """Lo que le falte a un análisis viejo (tonalidad y curvas de voz/bajo), sin repetir el BPM. Devuelve un dict."""
-    y, sr = librosa.load(path, sr=22050, mono=True)
+    y, sr = _cargar_mono(path)
     extras = {"key": detectar_clave(y, sr)}
     extras.update(analizar_voz(y, sr))
     return extras
@@ -879,8 +884,38 @@ def compat_armonica(c1, c2):
 
 
 
+def _cargar_mono(path, sr=22050):
+    """librosa.load, pero si el archivo tiene tramos dañados (libsndfile corta con 'Unspecified internal error' a mitad de la lectura)
+    se analiza lo que se pudo leer, en vez de descartar el tema entero. Hacen falta al menos 15 s de audio."""
+    try:
+        return librosa.load(path, sr=sr, mono=True)
+    except Exception as e1:
+        try:
+            import soundfile as sf
+            bloques = []; n = 0
+            with sf.SoundFile(path) as f:
+                sr0 = f.samplerate
+                while True:
+                    try:
+                        b = f.read(65536, dtype="float32", always_2d=True)
+                    except Exception:
+                        break                              # tramo dañado: se queda con lo leído hasta acá
+                    if len(b) == 0:
+                        break
+                    bloques.append(b.mean(axis=1)); n += len(b)
+            if n < 15 * sr0:
+                raise e1
+            y = np.concatenate(bloques)
+            if sr0 != sr:
+                y = librosa.resample(y, orig_sr=sr0, target_sr=sr)
+            print(f"[análisis] {os.path.basename(str(path))}: archivo con tramos dañados, se analizaron {n / sr0:.0f} s")
+            return y, sr
+        except Exception:
+            raise e1 from None
+
+
 def _analizar_archivo(path):
-    y, sr = librosa.load(path, sr=22050, mono=True)
+    y, sr = _cargar_mono(path)
 
     rms_array = librosa.feature.rms(y=y, frame_length=2048, hop_length=1024)[0]
     rms_medio = float(np.mean(rms_array))
@@ -978,6 +1013,11 @@ def _guardar_cache(cache_key, result):
     with open(tmp, "w") as f:
         f.write(txt)
     os.replace(tmp, cache_key)
+    try:
+        from setup.indice import registrar        # el índice liviano (lo que usa la lista) se mantiene al día en cada guardado
+        registrar(cache_key, result)
+    except Exception:
+        pass
 
 
 

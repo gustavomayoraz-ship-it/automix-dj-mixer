@@ -1,15 +1,17 @@
 """AutoMix — biblioteca: análisis de los temas, orden, carga en los decks."""
 import os
-from PySide6.QtWidgets import QAbstractItemView, QApplication
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
 from PySide6.QtCore import QTimer, Qt
 from setup.ajustes import SUPPORTED
 from setup.analisis import _mantener_vivo
+from setup.analizador_aparte import aparte_activo, lanzar_aparte
 from setup.base import log
 from setup.config import guardar_config, leer_config
 from setup.deck import Deck
 from setup.dialogo_analisis import DialogoAnalisis
 from setup.hilos_analisis import AnalizadorBiblioteca
 
+UMBRAL_APARTE = 1000       # con más temas que esto por analizar se ofrece el programa aparte (AnalizadorAutoMix.py)
 UMBRAL_MASIVO = 100        # a partir de esta cantidad de temas por analizar aparece la ventana de análisis a máxima velocidad
 
 
@@ -23,6 +25,10 @@ class BibliotecaMixin:
     _modo_siguiente = None            # 'max' / 'suave': al terminar el análisis en curso (cancelado a propósito) se reinicia en ese modo
     _dlg_analisis = None
     _oculta_por_analisis = False
+    _proc_aparte = None               # el programa aparte que está analizando (subprocess.Popen)
+    _t_aparte = None
+    _aparte_total = 0
+    _modo_masivo = None               # (elección, cuántos faltaban) cuando se preguntó cómo analizar miles de temas
 
     def _analisis_en_curso(self):
         return self._analizador_bib is not None and self._analizador_bib.isRunning()
@@ -103,6 +109,112 @@ class BibliotecaMixin:
                 ms_ord = 20000
         self._reordenar_pronto(ms_ord, fijo=True)
 
+    # ---------- análisis en un programa aparte (miles de temas) ----------
+    def _aparte_vivo(self):
+        p = self._proc_aparte
+        return (p is not None and p.poll() is None) or aparte_activo()
+
+    def _preguntar_modo_masivo(self, n):
+        """Con miles de temas sin analizar: 'aparte' (programa propio, recomendado), 'aqui' (en segundo plano, lento) o 'no'."""
+        cuadro = QMessageBox(self)
+        cuadro.setIcon(QMessageBox.Icon.Question)
+        cuadro.setWindowTitle("AutoMix — muchos temas sin analizar")
+        cuadro.setText(f"Hay {n:,} temas sin analizar.".replace(",", "."))
+        cuadro.setInformativeText("Con tantos conviene analizarlos en un programa aparte: tiene su propia ventana, usa todos los núcleos y deja "
+                                  "los resultados en la carpeta cache. El reproductor sigue funcionando y la lista se va actualizando sola.")
+        b_aparte = cuadro.addButton("🔬 Analizar en programa aparte (recomendado)", QMessageBox.ButtonRole.AcceptRole)
+        b_aqui = cuadro.addButton("Analizar acá, en segundo plano (lento)", QMessageBox.ButtonRole.ActionRole)
+        b_no = cuadro.addButton("Ahora no", QMessageBox.ButtonRole.RejectRole)
+        cuadro.setDefaultButton(b_aparte)
+        cuadro.exec()
+        clic = cuadro.clickedButton()
+        return "aparte" if clic is b_aparte else ("aqui" if clic is b_aqui else "no")
+
+    def _lanzar_aparte(self, rutas, forzar=False):
+        """Abre el analizador aparte con estos temas y se queda mirando el índice para ir actualizando la lista."""
+        sonando = bool(self.deck_a.playing or self.deck_b.playing)
+        try:
+            self._proc_aparte = lanzar_aparte(rutas, suave=sonando, forzar=forzar)
+        except OSError as e:
+            self._set_status(f"❌ No se pudo abrir el analizador aparte: {e}")
+            return
+        self._aparte_total = len(rutas)
+        bib = self.biblioteca
+        bib._bombeo = True                                    # (marcar recorre toda la lista: que no quede sin responder)
+        try:
+            bib.marcar(rutas)
+        finally:
+            bib._bombeo = False
+        self._set_status(f"🔬 Analizando {len(rutas):,} temas en el programa aparte".replace(",", ".") + (" (modo suave: está sonando música)" if sonando else ""))
+        self._seguir_aparte()
+
+    def _seguir_aparte(self):
+        """Arranca (si no corre) el reloj que revisa el índice cada pocos segundos mientras el programa aparte analiza."""
+        bib = self.biblioteca
+        if not self._aparte_aviso_marcado():
+            pend = self._pendientes()                         # el programa aparte lo abrió otra sesión: se marcan igual como pendientes
+            bib._bombeo = True
+            try:
+                bib.marcar(pend)
+            finally:
+                bib._bombeo = False
+            self._aparte_total = max(self._aparte_total, len(pend))
+        if self._t_aparte is None:
+            self._t_aparte = QTimer(self)
+            self._t_aparte.setInterval(10000)
+            self._t_aparte.timeout.connect(self._vigilar_aparte)
+        if not self._t_aparte.isActive():
+            self._t_aparte.start()
+
+    def _aparte_aviso_marcado(self):
+        return bool(self.biblioteca._cola)
+
+    def _vigilar_aparte(self):
+        """Cada 10 s: trae del índice los temas ya analizados (solo esas filas) y avisa el avance. Cuando el programa aparte termina, cierra."""
+        try:
+            self.biblioteca.sincronizar_indice()
+        except Exception:
+            import traceback; traceback.print_exc()
+        if self._aparte_vivo():
+            falta = len(self.biblioteca._cola)
+            total = max(self._aparte_total, falta, 1)
+            self._set_status(f"🔬 Analizando en el programa aparte: {total - falta:,} / {total:,}".replace(",", "."))
+            return
+        if self._t_aparte is not None:
+            self._t_aparte.stop()
+        self._fin_aparte()
+
+    def _fin_aparte(self):
+        """El programa aparte terminó (o se cerró): se trae lo último, se ordena la lista y se anota qué quedó sin analizar."""
+        p, self._proc_aparte = self._proc_aparte, None
+        rc = p.poll() if p is not None else None
+        bib = self.biblioteca
+        bib._bombeo = True                                    # (recorridos largos: que la ventana atienda al sistema)
+        try:
+            for _ in range(40):                               # lo último que quedó en el índice
+                if not bib.sincronizar_indice():
+                    break
+            bib.marcar(())
+            try:
+                self._ordenar_lista()
+            except Exception:
+                import traceback; traceback.print_exc()
+        finally:
+            bib._bombeo = False
+        if self._fallidos is None:
+            self._fallidos = set()
+        pend = self._pendientes()
+        for r in pend:                                        # lo que quedó sin analizar no se reintenta solo (Re-analizar lo retoma)
+            self._fallidos.add(bib._clave(r))
+        self._modo_masivo = ("no", len(pend))
+        self._actualizar_titulo_lib()
+        if rc not in (None, 0) and len(pend) >= self._aparte_total > 0:
+            self._set_status(f"❌ El programa aparte se cerró con error (código {rc}). Mirá cache/consola.log")
+        elif pend:
+            self._set_status(f"⏹ Análisis aparte terminado: quedan {len(pend):,} temas sin analizar (botón Re-analizar para retomar)".replace(",", "."))
+        else:
+            self._set_status("✅ Análisis aparte terminado: todo analizado")
+
     def _pendientes(self):
         if self._fallidos is None:
             self._fallidos = set()
@@ -144,10 +256,27 @@ class BibliotecaMixin:
             return
         if self._analisis_en_curso():
             return
+        if self._aparte_vivo():                              # ya hay un analizador aparte trabajando
+            self._seguir_aparte()
+            return
         faltan = self._pendientes()
         if not faltan:
             self._ordenar_al_terminar = False
             return
+        if len(faltan) > UMBRAL_APARTE and modo != "suave":      # miles de temas: en el programa aparte
+            if modo == "max":
+                self._lanzar_aparte(faltan)
+                return
+            previo = self._modo_masivo
+            if previo is None or len(faltan) > previo[1] + UMBRAL_MASIVO:      # se pregunta una vez (y de nuevo si se agregaron muchos más)
+                self._modo_masivo = previo = (self._preguntar_modo_masivo(len(faltan)), len(faltan))
+            if previo[0] == "aparte":
+                self._lanzar_aparte(faltan)
+                return
+            if previo[0] == "no":
+                self._set_status(f"⏳ {len(faltan):,} temas sin analizar (botón Re-analizar para analizarlos)".replace(",", "."))
+                return
+            modo = "suave"                                   # 'aqui': en este programa, en segundo plano
         self._set_status(f"⏳ Analizando {len(faltan)} temas (BPM)…")
         sonando = bool(self.deck_a.playing or self.deck_b.playing)
         if modo == "suave":
@@ -167,18 +296,34 @@ class BibliotecaMixin:
             dlg.fase("Actualizando la lista…" if modo else "Actualizando y ordenando la lista…")
             QApplication.processEvents()
             self._dlg_analisis = None                         # a partir de acá la lista se actualiza normal
-        self._vaciar_lote()                                   # los últimos temas analizados
-        self.biblioteca.marcar(())
-        if dlg is not None:
-            if not modo:
-                try:
-                    self._ordenar_lista()                     # orden final, con la ventana de progreso todavía a la vista
-                except Exception:
-                    import traceback; traceback.print_exc()
-                self._ordenar_al_terminar = False
+            for nom in ("_t_lote", "_t_reordenar"):           # nada de lotes ni reordenados programados mientras se hace el cierre
+                t = getattr(self, nom, None)
+                if t is not None:
+                    t.stop()
+            self.biblioteca._bombeo = True                    # con miles de temas cada recorrido tarda segundos: la lista atiende al sistema cada ~0,1 s (si no, Windows la marca "No responde")
+            try:
+                self._vaciar_lote()                           # los últimos temas analizados
+                self.biblioteca.marcar(())
+                if not modo:
+                    dlg.fase("Ordenando la lista…")
+                    QApplication.processEvents()
+                    try:
+                        self._ordenar_lista()                 # orden final, con la ventana de progreso todavía a la vista
+                    except Exception:
+                        import traceback; traceback.print_exc()
+                    self._ordenar_al_terminar = False
+            finally:
+                self.biblioteca._bombeo = False
+                for nom in ("_t_lote", "_t_reordenar"):
+                    t = getattr(self, nom, None)
+                    if t is not None:
+                        t.stop()
             self._cerrar_dlg(dlg)
-        elif not modo:
-            self._reordenar_pronto(300)                       # orden final con todo lo analizado
+        else:
+            self._vaciar_lote()                               # los últimos temas analizados
+            self.biblioteca.marcar(())
+            if not modo:
+                self._reordenar_pronto(300)                   # orden final con todo lo analizado
         self._actualizar_titulo_lib()
         if modo:                                              # cancelado a propósito para cambiar de modo: se sigue con lo que falta
             self._set_status("⚡ Analizando a máxima velocidad…" if modo == "max" else "⏬ Analizando en segundo plano…")
@@ -226,6 +371,9 @@ class BibliotecaMixin:
         t.start(ms)
 
     def _reordenar_ahora(self):
+        if self.biblioteca._bombeo:                                    # ya se está ordenando (cierre del análisis masivo): no se anida otro
+            self._reordenar_pronto(500)
+            return
         if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:     # no mover la lista mientras se arrastra un tema
             self._reordenar_pronto(500)
             return
@@ -293,6 +441,13 @@ class BibliotecaMixin:
 
     def _reanalizar_biblioteca(self):
         sonando = bool(self.deck_a.playing or self.deck_b.playing)
+        if self._aparte_vivo():
+            self._set_status("🔬 Ya se está analizando en el programa aparte (ventana AutoMix — Analizador aparte)")
+            self._seguir_aparte()
+            return
+        if self.biblioteca._cargando_lib or getattr(self.biblioteca, "_carga", None) is not None:
+            self._set_status("⏳ La biblioteca todavía se está cargando: cuando termine, los temas sin analizar se analizan solos (a máxima velocidad si no suena nada)")
+            return
         if self._analizador_bib is not None and self._analizador_bib.isRunning():
             a = self._analizador_bib
             if a.forzar:                                          # re-análisis completo en curso: segundo clic = cancelar
@@ -308,7 +463,11 @@ class BibliotecaMixin:
             return
         self._fallidos = set()                                    # lo que quedó sin analizar (cancelado, etc.) se vuelve a intentar
         desde_cero = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)      # Ctrl + clic = volver a analizar TODO
-        if self._pendientes() and not desde_cero:
+        pend = self._pendientes()
+        if pend and not desde_cero and len(pend) > UMBRAL_APARTE:      # miles de temas: en el programa aparte
+            self._lanzar_aparte(pend)
+            return
+        if pend and not desde_cero:
             if sonando:
                 self._set_status("🔇 Pausá la música para analizar a máxima velocidad (el reproductor se oculta)")
                 return
@@ -317,6 +476,9 @@ class BibliotecaMixin:
         rutas = self.biblioteca.todas()
         if not rutas:
             self._set_status("La lista está vacía")
+            return
+        if desde_cero and len(rutas) > UMBRAL_APARTE:
+            self._lanzar_aparte(rutas, forzar=True)           # volver a analizar TODO desde cero, en el programa aparte
             return
         if not desde_cero:
             self._set_status("✅ Todo está analizado (Ctrl + clic en el botón para volver a analizar todo desde cero)")

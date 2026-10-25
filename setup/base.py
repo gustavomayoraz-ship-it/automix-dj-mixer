@@ -46,8 +46,16 @@ DEPENDENCIAS = [("numpy", "numpy"), ("scipy", "scipy"), ("soundfile", "soundfile
 
 
 
+def _marca_instalando(pq):
+    """Archivo que existe SOLO mientras se instala un paquete: si el programa se cierra a mitad de la descarga, queda ahí
+    y la próxima vez ese paquete se considera incompleto y se vuelve a instalar (en vez de dar por buena una carpeta a medias)."""
+    return OFFLINE / (".instalando_" + pq)
+
+
 def _modulo_en_offline(mod):
     try:
+        if any(_marca_instalando(pq).exists() for m, pq in DEPENDENCIAS if m == mod):
+            return False                                  # instalación interrumpida: incompleto
         return (OFFLINE / mod).is_dir() or any(OFFLINE.glob(mod + ".*")) or (OFFLINE / (mod + ".py")).exists()
     except Exception:
         return False
@@ -65,13 +73,19 @@ def _instalar_en_offline(pq):
         if os.path.exists(cand):
             exe = cand
     kw = {"creationflags": 0x08000000} if os.name == "nt" else {}      # CREATE_NO_WINDOW
+    marca = _marca_instalando(pq)
     try:
         OFFLINE.mkdir(parents=True, exist_ok=True)
-        r = subprocess.run([exe, "-m", "pip", "install", "--target", str(OFFLINE),
-                            "--disable-pip-version-check", pq],
-                           capture_output=True, text=True, stdin=subprocess.DEVNULL, **kw)
+        reparar = marca.exists()                          # una instalación anterior quedó a medias: se pisa lo que haya
+        marca.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        cmd = [exe, "-m", "pip", "install", "--target", str(OFFLINE), "--disable-pip-version-check"]
+        if reparar:
+            cmd.append("--upgrade")                       # (con --target, sin esto pip no reemplaza lo que ya está)
+        r = subprocess.run(cmd + [pq], capture_output=True, text=True, stdin=subprocess.DEVNULL, **kw)
         ok = (r.returncode == 0)
         det = None if ok else (r.stderr or r.stdout or "pip no devolvió detalle.").strip()
+        if ok:
+            marca.unlink(missing_ok=True)                 # terminó bien: la marca se va (si falló, queda y se reintenta como reparación)
     except Exception as e:
         ok, det = False, str(e)
     try:
