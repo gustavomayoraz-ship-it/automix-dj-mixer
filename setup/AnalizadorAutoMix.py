@@ -14,6 +14,12 @@ sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _AQUI]      # 
 if _RAIZ not in sys.path:
     sys.path.insert(0, _RAIZ)
 
+if __name__ == "__main__":                        # un solo analizador aparte a la vez (se decide antes de cargar nada pesado)
+    from setup.instancia_unica import tomar
+    if not tomar("AnalizadorAutoMix"):
+        print("[aparte] ya hay un analizador aparte corriendo")
+        sys.exit(3)
+
 import setup.base          # dependencias + consola oculta (también lo corre el proceso hijo del análisis)
 
 

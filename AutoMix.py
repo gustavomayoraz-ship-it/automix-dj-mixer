@@ -26,6 +26,13 @@ _RAIZ = str(Path(__file__).resolve().parent)
 if _RAIZ not in sys.path:
     sys.path.insert(0, _RAIZ)
 
+if __name__ == "__main__":                        # una sola ventana de AutoMix a la vez (los procesos hijos del análisis no pasan por acá)
+    from setup.instancia_unica import avisar_ya_abierto, tomar
+    if not tomar("AutoMix"):
+        avisar_ya_abierto("AutoMix", "AutoMix ya está abierto.\n\nSi no lo ves, buscalo en la barra de tareas "
+                                     "(puede estar todavía cargando la biblioteca).")
+        sys.exit(0)
+
 import setup.base          # dependencias + consola oculta (también lo corre el proceso hijo del análisis)
 _T1 = time.perf_counter()
 

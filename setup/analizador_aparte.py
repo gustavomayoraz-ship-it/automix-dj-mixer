@@ -24,6 +24,8 @@ def aparte_activo():
 
 def lanzar_aparte(rutas, suave=False, forzar=False):
     """Escribe la lista de temas y abre el analizador aparte. Devuelve el proceso (subprocess.Popen)."""
+    if aparte_activo():
+        raise OSError("ya hay un analizador aparte abierto (esperá a que termine o cerralo)")
     LISTA.write_text("\n".join(rutas), encoding="utf-8")
     exe = Path(sys.executable)
     if os.name == "nt":
