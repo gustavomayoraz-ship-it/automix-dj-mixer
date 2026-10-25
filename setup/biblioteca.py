@@ -264,6 +264,7 @@ class Biblioteca(QListWidget):
                 nombre = os.path.basename(carpeta) or carpeta
                 n_esp = sum(1 for it in grupos[carpeta] if self._clave(it.data(Qt.ItemDataRole.UserRole)) in self._cola)
                 cab.setText(self._texto_cab(carpeta, cerrada, n_esp, len(grupos[carpeta])))
+                self._estilo_cab(cab, bool(n_esp))
                 cab.setToolTip(f"{origs[carpeta]}\n\nArrastrá este título para copiar TODA la carpeta afuera (a otra carpeta o al Escritorio).\nClic: abrir / cerrar.\nClic derecho (o Supr): quitar la carpeta de la lista (no borra archivos).")
                 tot = sum((self.duracion(it.data(Qt.ItemDataRole.UserRole)) or 0) for it in grupos[carpeta])
                 cab.setData(Qt.ItemDataRole.UserRole + 3, f"{len(grupos[carpeta])}" + (f" / {self._fmt_dur(tot, True)}" if tot else ""))
@@ -278,10 +279,17 @@ class Biblioteca(QListWidget):
     def _texto_cab(carpeta, cerrada, n_esperando, total=0):
         """Título de la carpeta; si adentro hay temas esperando su análisis muestra ⏳ analizados / total (se ve aunque esté contraída)."""
         nombre = os.path.basename(carpeta) or carpeta
-        extra = ""
-        if n_esperando:
-            extra = f"  ⏳ {max(0, total - n_esperando)} / {total}" if total else f"  ⏳ {n_esperando}"
-        return ("▶ " if cerrada else "▼ ") + "📁 " + nombre + extra
+        reloj = ""
+        if n_esperando:                                   # el reloj va entre la carpeta y el nombre: al final se cortaba con nombres largos
+            reloj = (f"⏳ {max(0, total - n_esperando)}/{total}  " if total else "⏳ ")
+        return ("▶ " if cerrada else "▼ ") + "📁 " + reloj + nombre
+
+    @staticmethod
+    def _estilo_cab(cab, pendiente):
+        """Carpeta con temas sin analizar: se ve apagada (gris, como deshabilitada); completa: colores normales."""
+        fondo, letra = ("#1b2a31", "#6f8790") if pendiente else ("#17566a", "#d8f6ff")
+        if cab.background().color().name() != fondo:                      # solo se toca si cambió (evita repintar de más)
+            cab.setBackground(QBrush(QColor(fondo))); cab.setForeground(QBrush(QColor(letra)))
 
     def _clic_cab(self, it):
         if not self._es_cab(it):
@@ -339,6 +347,7 @@ class Biblioteca(QListWidget):
                     nuevo = self._texto_cab(c, cerrada, n_esp, n_tot)
                     if cab.text() != nuevo:
                         cab.setText(nuevo)
+                    self._estilo_cab(cab, bool(n_esp))
             for i in range(self.count()):
                 self._bomba()
                 it = self.item(i)
@@ -432,6 +441,7 @@ class Biblioteca(QListWidget):
                     nuevo = self._texto_cab(c, c in self._plegadas, pend.get(c, 0), tot_c.get(c, 0))
                     if it.text() != nuevo:
                         it.setText(nuevo)
+                    self._estilo_cab(it, bool(pend.get(c, 0)))
         finally:
             self._cargando = prev
 
@@ -865,6 +875,18 @@ class Biblioteca(QListWidget):
     def temas_sin_bpm(self):
         return [r for r in self.todas() if self._bpm_de(r) is None]
 
+    def contar_analizados(self):
+        """Cantidad de temas de la lista ya analizados por completo (BPM, tonalidad y voz), contados desde el índice en memoria."""
+        if self._idx is None or not self._idx_ok:
+            return None
+        idx = self._idx
+        n = 0
+        for r in self.todas():
+            fila = idx.get(_stem_memo(r))
+            if fila is not None and fila[0] is not None and fila[3] and fila[5]:
+                n += 1
+        return n
+
     def temas_sin_analisis(self):
         """Sin BPM, o con análisis viejo al que le falta la tonalidad."""
         out = []
@@ -891,30 +913,6 @@ class Biblioteca(QListWidget):
                                       self._nombre(x[1]).lower()))
             for _, it in items:
                 self._bomba()
-                self.addItem(it)
-        finally:
-            self.setUpdatesEnabled(True)
-            self._cargando = prev
-        self._refrescar_textos()
-        self.cambio.emit()
-
-    @_reagrupa
-    def ordenar_por_tono(self):
-        """Ordena por clave Camelot (1A, 1B, 2A, 2B … 12B); dentro de cada clave por BPM. Sin clave: al final."""
-        def k(ruta, it):
-            bpm, cam, _, _ = self.info(ruta)
-            m = re.match(r"\s*(\d{1,2})\s*([ABab])", cam or "")
-            kk = (int(m.group(1)), m.group(2).upper()) if m else None
-            return (kk is None, kk or (0, ""), bpm is None, bpm or 0.0, self._nombre(it).lower())
-        prev = self._cargando
-        self._cargando = True
-        self.setUpdatesEnabled(False)
-        try:
-            items = []
-            for it in self._sacar_todos():
-                items.append((k(it.data(Qt.ItemDataRole.UserRole), it), it))
-            items.sort(key=lambda x: x[0])
-            for _, it in items:
                 self.addItem(it)
         finally:
             self.setUpdatesEnabled(True)

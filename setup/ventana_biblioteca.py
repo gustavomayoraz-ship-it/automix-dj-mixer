@@ -1,5 +1,6 @@
 """AutoMix — biblioteca: análisis de los temas, orden, carga en los decks."""
 import os
+import time
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QMessageBox
 from PySide6.QtCore import QTimer, Qt
 from setup.ajustes import SUPPORTED
@@ -348,9 +349,6 @@ class BibliotecaMixin:
         """Con 🎼 Armónico y/o 🥁 En frase la lista se ordena como cadena de mezcla (empezando por el tema que
         suena); sin ninguna, por BPM de menor a mayor."""
         arm, fra = self.chk_armonico.isChecked(), self.chk_frases.isChecked()
-        if getattr(self, "_orden_tono", False):
-            self.biblioteca.ordenar_por_tono()
-            return
         if not (arm or fra):
             self.biblioteca.ordenar_por_bpm()
             return
@@ -388,7 +386,7 @@ class BibliotecaMixin:
     def _alternar_agrupada(self, v):
         self.biblioteca.set_agrupado(bool(v))
         if v:
-            self._ordenar_lista()                             # dentro de cada carpeta, el orden de siempre (BPM o tono)
+            self._ordenar_lista()                             # dentro de cada carpeta, el orden de siempre (por BPM)
         guardar_config(lib_agrupada=bool(v))
         self._set_status("📂 Lista separada por carpetas (clic en un título para cerrarlo o abrirlo)" if v else "📃 Lista plana")
 
@@ -415,17 +413,13 @@ class BibliotecaMixin:
             self.btn_plegar.setToolTip("Expandir todas las carpetas")
             self._set_status("📂 Carpetas contraídas")
 
-    def _ordenar_biblioteca_tono(self):
-        self._orden_tono = True                               # se mantiene mientras se analiza y suenan los temas
-        self.biblioteca.ordenar_por_tono()
-        faltan = [r for r in self._pendientes()]
-        self._set_status("🎼 Biblioteca ordenada por tono" + (f" — analizando {len(faltan)} temas sin tono…" if faltan else ""))
-        if faltan and not self._analisis_en_curso():
-            self._ordenar_al_terminar = True
-            self._iniciar_analisis(faltan, False, self._fin_analisis, "⏳ Analizando tono")
+    def _random_cambio(self, on):
+        """Botón ➡ Normal / 🎲 Random: cómo se elige el tema que sigue."""
+        self.btn_random.setText("🎲 Random" if on else "➡ Normal")
+        self._tocados_rnd = set()                                   # al activarlo empieza una vuelta nueva
+        self._set_status("🎲 Modo Random: el que sigue es uno al azar, analizado y de BPM parecido al que suena" if on else "➡ Modo normal: sigue el orden de la lista")
 
     def _ordenar_biblioteca_bpm(self):
-        self._orden_tono = False
         self._ordenar_lista()                                 # ya: primero los que tienen BPM conocido
         self._fallidos = set()                                # un clic explícito vuelve a intentar los que fallaron
         faltan = self._pendientes()
@@ -519,16 +513,33 @@ class BibliotecaMixin:
             it.setHidden(bool(t) and t not in it.text().lower())
 
     def _actualizar_titulo_lib(self):
-        """Título de la lista: 'Biblioteca (17)'; mientras se analiza, 'Biblioteca (5/17)' = analizados / total."""
+        """Título de la lista: 'Biblioteca: ( analizados / total )'. El conteo se hace a lo sumo una vez por segundo."""
+        ahora = time.monotonic()
+        if ahora - getattr(self, "_t_titulo_lib", 0.0) < 1.0:
+            if not getattr(self, "_titulo_lib_pendiente", False):          # se vuelve a pintar una sola vez cuando pase el segundo
+                self._titulo_lib_pendiente = True
+                QTimer.singleShot(1000, self._titulo_lib_diferido)
+            return
+        self._t_titulo_lib = ahora
         total = len(self.biblioteca.todas())
-        pend = len(self.biblioteca._cola)
-        if pend and pend <= total:
-            hechos = total - pend
-            self.lbl_lib.setText(f"📁 Biblioteca ({hechos}/{total})")
+        try:
+            hechos = self.biblioteca.contar_analizados()
+        except Exception as e:
+            log("biblioteca", f"no se pudo contar los analizados: {e}")
+            hechos = None
+        if hechos is None:                                                 # sin índice: se estima con la cola de pendientes
+            pend = len(self.biblioteca._cola)
+            hechos = total - pend if pend <= total else total
+        hechos = min(hechos, total)
+        self.lbl_lib.setText(f"📁 Biblioteca: ( {hechos} / {total} )")
+        if hechos < total and self.biblioteca._cola:
             self.setWindowTitle(f"AutoMix 🎚️  —  🔬 Analizando {hechos:,} / {total:,}  ({100 * hechos // max(1, total)} %)".replace(",", "."))
         else:
-            self.lbl_lib.setText(f"📁 Biblioteca ({total})")
             self.setWindowTitle("AutoMix 🎚️")
+
+    def _titulo_lib_diferido(self):
+        self._titulo_lib_pendiente = False
+        self._actualizar_titulo_lib()
 
     def _biblioteca_cambio(self):
         self._actualizar_titulo_lib()

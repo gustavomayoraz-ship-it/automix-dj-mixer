@@ -79,7 +79,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.logo = LogoAutoMix(lambda: getattr(getattr(self, "mixer", None), "nivel_vis", 0.0))
         lib_lay.addWidget(self.logo)
         self.lbl_lib = EtiquetaElidida("📁 Biblioteca — arrastrá carpetas acá")
-        self.lbl_lib.setStyleSheet(f"color:{TEMA['suave']}; font-weight:bold;")
+        self.lbl_lib.setStyleSheet(f"color:{TEMA['texto']}; font-weight:bold; font-size:15px;")
         lib_lay.addWidget(self.lbl_lib)
         # ---- BUSCADOR + BOTÓN << (contraer todas las carpetas) ----
         self.ed_filtro = QLineEdit()
@@ -111,16 +111,20 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         lib_btns.addWidget(b_limpiar); lib_btns.addWidget(self.btn_ordenar)
         lib_btns.addWidget(self.btn_reanalizar)
         lib_lay.addLayout(lib_btns)
-        self.btn_ordenar_tono = QPushButton("🎼 Ordenar por tono")
-        self.btn_ordenar_tono.setToolTip("Ordena la lista por tonalidad (clave Camelot: 1A, 1B, 2A … 12B), y dentro de cada tono por BPM.\n"
-                                         "Los temas sin tono analizado quedan al final. Con 🔃 Ordenar por BPM se vuelve al orden anterior.")
-        self.btn_ordenar_tono.clicked.connect(self._ordenar_biblioteca_tono)
+        self.btn_random = QPushButton("➡ Normal")
+        self.btn_random.setCheckable(True)
+        self.btn_random.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_random.setToolTip("Cómo se elige el tema que sigue.\n➡ Normal: el que sigue en la lista.\n"
+                                   "🎲 Random: uno al azar de la lista, ya analizado y con el mismo BPM que el que suena; si no hay, de a un BPM más cerca (±1, ±2…), "
+                                   "así el tempo nunca se aleja mucho. No repite hasta tocar todos los de ese rango.")
+        self.btn_random.setStyleSheet("QPushButton:checked { background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffd35a, stop:1 #e08a00); color:#2a1700; font-weight:bold; border:1px solid #fff0b8; }")
+        self.btn_random.toggled.connect(self._random_cambio)
         self.btn_agrupar = QPushButton("📂 Por carpetas")
         self.btn_agrupar.setCheckable(True)
         self.btn_agrupar.setToolTip("Muestra la lista separada por carpetas: el nombre de la carpeta como título y debajo sus temas.\n"
                                     "Clic en un título para cerrar o abrir esa carpeta. Volvé a tocar el botón para la lista plana.")
         self.btn_agrupar.clicked.connect(self._alternar_agrupada)
-        fila_orden = QHBoxLayout(); fila_orden.addWidget(self.btn_ordenar_tono); fila_orden.addWidget(self.btn_agrupar)
+        fila_orden = QHBoxLayout(); fila_orden.addWidget(self.btn_random); fila_orden.addWidget(self.btn_agrupar)
         lib_lay.addLayout(fila_orden)
         # 🎼 Armónico y 🥁 En frase se quitaron de la pantalla: quedan siempre apagados
         # (el siguiente tema es el que sigue en la lista, ordenada por BPM, y la mezcla automática arranca al llegar a la marca).

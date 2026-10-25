@@ -1,6 +1,7 @@
 """AutoMix — mezcla automática: plan, siguiente tema, duración y disparo."""
 import math
 import os
+import random
 import time
 import numpy as np
 from PySide6.QtCore import QTimer
@@ -200,9 +201,73 @@ class AutomaticoMixin:
             return None, "ningún tema de la lista es compatible (clave y BPM) con el que suena"
         return max(cands, key=lambda c: c[0])[2], None
 
+    RANDOM_DIF_BPM = 8          # modo 🎲 Random: hasta cuántos BPM se aleja como máximo del tema que suena
+
+    def _modo_random(self):
+        b = getattr(self, "btn_random", None)
+        return bool(b is not None and b.isChecked())
+
+    def _siguiente_random(self, path_actual):
+        """Modo 🎲 Random: un tema AL AZAR de la lista, ya analizado y con el mismo BPM que el que suena. Si no queda ninguno, abre de a un BPM
+        (±1, ±2, ±3…) para que el tempo nunca se aleje mucho. No repite los ya tocados (cuando se acaban, empieza otra vuelta), saltea los tildados
+        con ⏭ y respeta el filtro del buscador. Devuelve (ruta, None) o (None, motivo)."""
+        bib = self.biblioteca
+        if not path_actual:
+            return None, "no hay tema de referencia"
+        bpm0 = bib.info(path_actual)[0]
+        if not bpm0:
+            return None, "el tema que suena no tiene BPM analizado todavía"
+        b0 = int(round(bpm0))
+        en_decks = {bib._clave(d.path) for d in (self.deck_a, self.deck_b) if d.path}
+        en_decks.add(bib._clave(path_actual))
+        if not hasattr(self, "_tocados_rnd"):
+            self._tocados_rnd = set()
+        self._tocados_rnd |= en_decks
+        candidatas = bib.todas_visibles() if self._hay_filtro_busqueda() else bib.todas()
+
+        def por_distancia():
+            grupos = {}
+            for r in candidatas:
+                k = bib._clave(r)
+                if k in self._tocados_rnd or bib.esta_salteado(r):
+                    continue
+                bpm = bib.info(r)[0]
+                if not bpm:                                   # sin analizar: no se considera
+                    continue
+                d = abs(int(round(bpm)) - b0)
+                if d <= self.RANDOM_DIF_BPM:
+                    grupos.setdefault(d, []).append(r)
+            return grupos
+
+        def elegir(grupos):
+            for d in sorted(grupos):
+                pool = grupos[d]
+                random.shuffle(pool)
+                for r in pool:
+                    if os.path.isfile(r):
+                        return r, d
+            return None, None
+        ruta, d = elegir(por_distancia())
+        if ruta is None and len(self._tocados_rnd) > len(en_decks):      # ya se tocó todo lo cercano: se empieza otra vuelta
+            self._tocados_rnd = set(en_decks)
+            ruta, d = elegir(por_distancia())
+        if ruta is None:
+            return None, f"no hay temas analizados a ±{self.RANDOM_DIF_BPM} BPM de {bpm0:.0f}"
+        self._tocados_rnd.add(bib._clave(ruta))
+        self._rnd_dif = d
+        return ruta, None
+
     def _siguiente_en_biblioteca(self, path_actual):
         """Elige el siguiente tema a cargar. Respeta el filtro de búsqueda de la lista: si el usuario está buscando
         algo, la 'cola' es lo que ve en pantalla. Los temas tildados con ⏭ (salteados) se ignoran por completo."""
+        if self._modo_random():
+            try:
+                ruta, motivo = self._siguiente_random(path_actual)
+                if ruta is not None:
+                    return ruta, None
+                self._set_status(f"🎲 Random: {motivo} — se sigue el orden normal de la lista")
+            except Exception:
+                import traceback; traceback.print_exc()
         if getattr(self, "chk_armonico", None) is not None and self.chk_armonico.isChecked():
             try:
                 return self._siguiente_armonico(path_actual)      # estricto: si no hay compatible, no se carga ninguno
@@ -245,7 +310,12 @@ class AutomaticoMixin:
         destino.load_track(ruta)
         k_sale, k_entra = self._clave_de(otro), self.biblioteca.info(ruta)[1]
         extra = f"  🎼 {k_sale}→{k_entra}" if (k_sale and k_entra) else ""
-        self._set_status(f"🔁 Deck {destino.name} en espera: {os.path.basename(ruta)}{extra}")
+        if self._modo_random():
+            try:
+                extra += f"  ({self.biblioteca.info(ruta)[0]:.0f} BPM" + (")" if not getattr(self, "_rnd_dif", 0) else f", a {self._rnd_dif} BPM de distancia)")
+            except Exception:
+                pass
+        self._set_status(f"{'🎲' if self._modo_random() else '🔁'} Deck {destino.name} en espera: {os.path.basename(ruta)}{extra}")
 
     # ================= MEZCLA EN FRASE =================
     FRASE_COMPASES = 8
