@@ -3,6 +3,7 @@ import time
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
 from setup.tema import TEMA
+from setup.widgets import EtiquetaElidida
 
 
 def _fmt(n):
@@ -25,7 +26,7 @@ class DialogoAnalisis(QDialog):
         self.setWindowTitle("AutoMix 🎚️ — Analizando biblioteca")
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowMinimizeButtonHint)       # con botón de minimizar
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self.setFixedSize(480, 250)
+        self.setFixedSize(480, 275)
         T = TEMA
         self.setStyleSheet(
             f"QDialog {{ background:{T['bg1']}; border:1px solid {T['violeta']}; }}"
@@ -44,7 +45,8 @@ class DialogoAnalisis(QDialog):
         self.barra = QProgressBar(); self.barra.setRange(0, 1000); self.barra.setTextVisible(False); lay.addWidget(self.barra)
         self.lbl_vel = QLabel("Preparando…"); self.lbl_vel.setStyleSheet(f"color:{T['suave']};")
         lay.addWidget(self.lbl_vel)
-        self.lbl_actual = QLabel(""); self.lbl_actual.setWordWrap(True)
+        self.lbl_actual = EtiquetaElidida("")                  # una sola línea de alto fijo (recortada con "…"): si cambiara de alto, la ventana temblaría y cortaría los botones
+        self.lbl_actual.setFixedHeight(18)
         self.lbl_actual.setStyleSheet(f"color:{T['cian']}; font-size:11px;")
         lay.addWidget(self.lbl_actual)
         info = f"Usando {procesos} procesos a máxima velocidad. " if procesos else "Máxima velocidad. "
