@@ -50,6 +50,7 @@ class BibliotecaMixin:
         self._lote_listos = []
         if masivo:
             a.progreso.connect(dlg.poner)
+            a.en_curso.connect(dlg.poner_actual)
             dlg.cancelar.connect(lambda: setattr(a, "cancelar", True))
             dlg.segundo_plano.connect(lambda: self._pasar_a_modo("suave"))
         elif not forzar:

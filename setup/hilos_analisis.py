@@ -114,6 +114,7 @@ def _ram_libre_gb():
 
 class AnalizadorBiblioteca(QThread):
     progreso = Signal(int, int)
+    en_curso = Signal(str)                # qué temas se están analizando ahora (para que la ventana muestre actividad)
     tema_listo = Signal(str)
     terminado = Signal()
 
@@ -136,11 +137,12 @@ class AnalizadorBiblioteca(QThread):
     @staticmethod
     def _limitar_por_ram(n):
         """Cada análisis ocupa ~1 a 2 GB de RAM (temas largos más): con la memoria casi llena la PC se traba por completo.
-        Se baja la cantidad de procesos para que quede ~1,5 GB libre por proceso y al menos 2 GB libres para el sistema."""
+        Se baja la cantidad de procesos para contar ~2,5 GB por proceso (con picos) y dejar al menos 2,5 GB libres para el sistema."""
         libre = _ram_libre_gb()
         if libre is None:
             return n
-        return max(1, min(n, int((libre - 2.0) // 1.5)))
+        print(f"[análisis] RAM libre {libre:.1f} GB → máximo {max(1, int((libre - 2.5) // 2.5))} procesos")
+        return max(1, min(n, int((libre - 2.5) // 2.5)))
 
     @staticmethod
     def _num_trabajadores():
@@ -178,6 +180,37 @@ class AnalizadorBiblioteca(QThread):
                     print(f"[análisis] el análisis en paralelo falló (intento {intento}/3)" + (": se vuelve a armar" if intento < 3 else ": se sigue de a un tema"))
         self._analizar_secuencial()
 
+    def _rutas_livianas_primero(self):
+        """Los temas ordenados de menor a mayor tamaño de archivo (un mix de una hora tarda minutos; un tema de 4 minutos, segundos)."""
+        def tam(r):
+            try:
+                return os.path.getsize(r)
+            except OSError:
+                return 0
+        return sorted(self.rutas, key=tam)
+
+    @staticmethod
+    def _timeout_de(ruta):
+        """Tiempo máximo para un tema: 150 s como mínimo y 8 s por cada MB del archivo (un mix de 150 MB puede tardar 15-20 minutos con varios a la vez)."""
+        from setup.analisis import TIMEOUT_ANALISIS
+        try:
+            mb = os.path.getsize(ruta) / 1048576
+        except OSError:
+            mb = 0.0
+        return max(TIMEOUT_ANALISIS, 8.0 * mb)
+
+    def _avisar_en_curso(self, pend):
+        """Emite los nombres de los temas que se están analizando ahora (con su tamaño)."""
+        nombres = []
+        for it in list(pend)[:3]:
+            ruta = it[1]
+            try:
+                mb = os.path.getsize(ruta) / 1048576
+            except OSError:
+                mb = 0.0
+            nombres.append(f"{os.path.basename(ruta)} ({mb:.0f} MB)")
+        self.en_curso.emit("🎧 Analizando ahora: " + "  ·  ".join(nombres) if nombres else "")
+
     def _tarea(self, ruta):
         """Qué hay que hacer con este tema: 'full' (análisis completo), 'clave' (completar tonalidad/voz) o None (ya está).
         Devuelve (tarea, cache_key)."""
@@ -198,7 +231,7 @@ class AnalizadorBiblioteca(QThread):
         if an._CALENTADO:
             return
         intentos = 0
-        for i, ruta in enumerate(self.rutas, 1):
+        for i, ruta in enumerate(self._rutas_livianas_primero(), 1):
             if self.cancelar:
                 return
             try:
@@ -248,9 +281,12 @@ class AnalizadorBiblioteca(QThread):
         else:
             os.environ.pop("AUTOMIX_ANALISIS_MAX", None)
         print(f"[análisis] biblioteca: {n} temas a la vez ({'máxima velocidad' if self.modo_max else 'prioridad baja'})")
-        pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad)
+        try:
+            pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad, max_tasks_per_child=20)    # cada proceso se renueva cada 20 temas: la memoria que acumula (librosa/numpy) se devuelve
+        except TypeError:                                              # Python viejo sin max_tasks_per_child
+            pool = ProcessPoolExecutor(max_workers=n, mp_context=ctx, initializer=_bajar_prioridad)
         pend = deque()                      # (i, ruta, cache_key, tarea, futuro, t0), en el orden de la lista
-        sig = iter(enumerate(self.rutas, 1))
+        sig = iter(enumerate(self._rutas_livianas_primero(), 1))        # primero los archivos chicos: el número avanza enseguida y los mixes enormes quedan para el final
         agotada = False
         falla = None
         try:
@@ -274,6 +310,7 @@ class AnalizadorBiblioteca(QThread):
                         continue
                     fut = pool.submit(_analizar_archivo if tarea == "full" else _analizar_clave, ruta)
                     pend.append((i, ruta, key, tarea, fut, time.monotonic()))
+                    self._avisar_en_curso(pend)
                 if self.cancelar:
                     break
                 if not pend:
@@ -282,8 +319,9 @@ class AnalizadorBiblioteca(QThread):
                     time.sleep(0.2)         # un deck espera su análisis: se le cede el turno
                     continue
                 i, ruta, key, tarea, fut, t0 = pend.popleft()
+                self._avisar_en_curso([(i, ruta)] + list(pend))
                 try:
-                    t_lim = time.monotonic() + TIMEOUT_ANALISIS
+                    t_lim = time.monotonic() + self._timeout_de(ruta)
                     cancelado = False
                     while True:                         # se espera de a 0,25 s: así "Detener" y "Segundo plano" se atienden enseguida (antes había que esperar a que terminara el tema más lento)
                         try:

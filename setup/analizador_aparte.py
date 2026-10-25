@@ -80,6 +80,7 @@ def main(argv):
     dlg.show()
     a = AnalizadorBiblioteca(rutas, forzar=forzar, modo_max=not suave, aparte=True)
     a.progreso.connect(dlg.poner)
+    a.en_curso.connect(dlg.poner_actual)
     dlg.cancelar.connect(lambda: setattr(a, "cancelar", True))
     latido = QTimer(); latido.setInterval(int(LATIDO_S * 1000))
     def _latir():

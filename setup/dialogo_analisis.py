@@ -44,6 +44,9 @@ class DialogoAnalisis(QDialog):
         self.barra = QProgressBar(); self.barra.setRange(0, 1000); self.barra.setTextVisible(False); lay.addWidget(self.barra)
         self.lbl_vel = QLabel("Preparando…"); self.lbl_vel.setStyleSheet(f"color:{T['suave']};")
         lay.addWidget(self.lbl_vel)
+        self.lbl_actual = QLabel(""); self.lbl_actual.setWordWrap(True)
+        self.lbl_actual.setStyleSheet(f"color:{T['cian']}; font-size:11px;")
+        lay.addWidget(self.lbl_actual)
         info = f"Usando {procesos} procesos a máxima velocidad. " if procesos else "Máxima velocidad. "
         pie = QLabel(info + (pie or "El reproductor queda oculto hasta que termine.")); pie.setWordWrap(True)
         pie.setStyleSheet(f"color:{T['suave']}; font-size:11px;")
@@ -86,6 +89,10 @@ class DialogoAnalisis(QDialog):
         if i >= 3 and dt > 2:
             vel = i / dt
             self.lbl_vel.setText(f"≈ {vel:.1f} temas por segundo  ·  faltan unos {_tiempo((total - i) / max(vel, 1e-6))}")
+
+    def poner_actual(self, texto):
+        """Qué temas se están analizando ahora (así se ve actividad aunque el número tarde en cambiar)."""
+        self.lbl_actual.setText(texto)
 
     def fase(self, texto):
         self.lbl_vel.setText(texto)
