@@ -160,7 +160,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.deck_a.on_reset_cb = self._on_reset_deck
         self.deck_b.on_reset_cb = self._on_reset_deck
         self.panel_cruce = PanelCruce(self)
-        izq = QVBoxLayout(); izq.setSpacing(6); izq.setContentsMargins(0, 0, 0, 0)       # columna central: decks (apilados) + tarjetas a su derecha
+        izq = QVBoxLayout(); izq.setSpacing(6); izq.setContentsMargins(0, 0, 0, 0)
+        self._col_central = izq       # columna central: decks (apilados) + tarjetas a su derecha
         fila_sup = QHBoxLayout(); fila_sup.setSpacing(14); fila_sup.setContentsMargins(0, 0, 0, 0)
         decks_ab = QVBoxLayout(); decks_ab.setSpacing(10); decks_ab.setContentsMargins(0, 0, 0, 0)       # Deck A arriba, Deck B abajo
         decks_ab.addWidget(self.deck_a, 1)       # los dos decks se estiran parejo hasta abajo (sin hueco vacío)
@@ -361,7 +362,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.lbl_marca.setStyleSheet(f"color:{TEMA['suave']}; font-size:11px;")
         self._actualizar_lbl_marca()
         bl.addWidget(self.lbl_marca)
-        root.addWidget(barra_box)
+        self._col_central.insertWidget(1, barra_box)        # el Auto-enganche va justo debajo de los decks y las tarjetas (en el hueco de la columna central), al lado del panel de cruce
 
         zoom_row = QHBoxLayout()
         zoom_row.addWidget(QLabel("Zoom (px/s):"))

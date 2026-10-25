@@ -464,10 +464,24 @@ class Biblioteca(QListWidget):
         """Los temas recién analizados en este programa: se vuelve a leer su fila del índice (de una consulta por tandas)."""
         if self._idx is None or not self._idx_ok:
             return
+        stems = {_stem_memo(r) for r in rutas}
         try:
-            self._idx.update(indice.por_temas({_stem_memo(r) for r in rutas}))
+            self._idx.update(indice.por_temas(stems))
         except Exception as e:
             log("índice", f"no se pudo actualizar desde el índice: {e}")
+        for st in stems:                                     # recién analizado pero sin fila en la base (base ilegible, pendrive…): se lee su .json
+            if st in self._idx and self._idx[st][0] is not None and self._idx[st][3]:
+                continue
+            cache = CACHE_DIR / (st + ".json")
+            try:
+                if cache.exists():
+                    with open(cache, encoding="utf-8") as f:
+                        d = json.load(f)
+                    if isinstance(d, dict) and "bpm" in d:
+                        self._lote_idx.append(indice.fila_de(st, d))
+            except Exception:
+                pass
+        self._guardar_lote_idx()
 
     def info(self, ruta):
         """(bpm, clave Camelot, nombre de la nota, hay_clave) del tema, desde su caché de análisis."""
@@ -537,10 +551,10 @@ class Biblioteca(QListWidget):
         lote, self._lote_idx = self._lote_idx, []
         if not lote:
             return
+        for f in lote:                                       # la lista ya los usa, se pueda guardar en la base o no
+            self._idx[f[0]] = f[1:8]
         try:
             indice.registrar_lote(lote)
-            for f in lote:
-                self._idx[f[0]] = f[1:8]
         except Exception as e:
             log("índice", f"no se pudo guardar en el índice: {e}")
 

@@ -247,7 +247,17 @@ class PanelCruce(QFrame):
             sale = v.deck_a if f <= 50 else v.deck_b
             entra = v.deck_b if sale is v.deck_a else v.deck_a
             if sale.audio is not None and entra.audio is not None and sale.analysis and entra.analysis:
-                return v._disenar_cruce_auto(sale, entra)
+                # El plan se recalcula solo si cambió algo real (temas, tempo, ajustes o forma de cruce), NO por el avance de la canción: si no, la línea del bajo
+                # (que cae en la próxima línea de compás desde "ahora") se corre sin parar hacia la izquierda y se rediseña 20 veces por segundo.
+                clave = (sale.path, entra.path, round(float(sale.rate_eff), 3), round(float(entra.rate_eff), 3), tuple(sorted(cruce_auto.valores().items())),
+                         round(v.punto_a, 3), round(v.punto_b, 3), round(v.punto_s, 3), round(v.rampa_b, 3), round(v.fin_a, 3), round(v.gamma_a, 3),
+                         bool(v.cruce_bandas), int(v.spin_mix.value()))
+                c = getattr(self, "_prev_cache", None)
+                if c is not None and c[0] == clave:
+                    return c[1]
+                plan = v._disenar_cruce_auto(sale, entra)
+                self._prev_cache = (clave, plan)
+                return plan
         except Exception:
             pass
         return None

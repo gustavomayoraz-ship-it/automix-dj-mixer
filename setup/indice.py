@@ -3,6 +3,7 @@ Cada análisis guarda sus datos pesados (forma de onda, compases) en cache/<tema
 (BPM, clave, duración, si tiene grilla y voz). Así la lista se arma con una consulta en vez de leer miles de .json, y el analizador aparte
 y el reproductor se comunican por acá: uno escribe, el otro pregunta "qué hay nuevo desde la última vez"."""
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -12,6 +13,27 @@ from setup.base import CACHE_DIR
 DB = CACHE_DIR / "indice.db"
 _lock = threading.Lock()
 _listo = False
+_avisado = False
+
+
+def _avisar(e):
+    """Un fallo de la base no debe romper nada (la lista lee los .json), pero queda anotado una vez en la consola."""
+    global _avisado
+    if not _avisado:
+        _avisado = True
+        print(f"[índice] no se pudo usar la base de datos ({type(e).__name__}: {e}): la lista usa los .json de la caché")
+
+
+def _disco_fijo():
+    """False si la carpeta está en un pendrive o una unidad de red: ahí el modo WAL de SQLite (memoria compartida) puede fallar."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        unidad = os.path.splitdrive(str(DB))[0] + "\\"
+        return ctypes.windll.kernel32.GetDriveTypeW(unidad) == 3         # DRIVE_FIXED
+    except Exception:
+        return True
 
 _SQL = """CREATE TABLE IF NOT EXISTS temas (
     tema TEXT PRIMARY KEY,          -- nombre del .json de la caché (sin extensión)
@@ -27,7 +49,8 @@ def _conectar():
     if not _listo:
         with _lock:
             try:
-                con.execute("PRAGMA journal_mode=WAL")           # uno escribe mientras otros leen
+                if _disco_fijo():
+                    con.execute("PRAGMA journal_mode=WAL")       # uno escribe mientras otros leen (en pendrives se usa el modo común)
             except sqlite3.DatabaseError:
                 pass
             con.execute(_SQL)
@@ -69,8 +92,8 @@ def registrar(cache_key, d):
             con.commit()
         finally:
             con.close()
-    except (sqlite3.Error, OSError):
-        pass
+    except (sqlite3.Error, OSError) as e:
+        _avisar(e)
 
 
 def registrar_lote(filas):
