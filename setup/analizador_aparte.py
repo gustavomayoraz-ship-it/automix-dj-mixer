@@ -1,4 +1,4 @@
-"""AutoMix — análisis de la biblioteca en un programa aparte (AnalizadorAutoMix.py).
+"""AutoMix — análisis de la biblioteca en un programa aparte (setup/AnalizadorAutoMix.py).
 Este módulo lo usan los dos lados: el reproductor (lanzar_aparte / aparte_activo) y el programa aparte (main)."""
 import os
 import subprocess
@@ -30,7 +30,7 @@ def lanzar_aparte(rutas, suave=False, forzar=False):
         pw = exe.with_name("pythonw.exe")
         if pw.exists():
             exe = pw                                                      # sin ventana negra de consola
-    cmd = [str(exe), str(RAIZ / "AnalizadorAutoMix.py"), "--lista", str(LISTA)]
+    cmd = [str(exe), str(RAIZ / "setup" / "AnalizadorAutoMix.py"), "--lista", str(LISTA)]
     if suave:
         cmd.append("--suave")
     if forzar:
