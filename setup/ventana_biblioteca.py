@@ -26,6 +26,8 @@ class BibliotecaMixin:
     _modo_siguiente = None            # 'max' / 'suave': al terminar el análisis en curso (cancelado a propósito) se reinicia en ese modo
     _dlg_analisis = None
     _oculta_por_analisis = False
+    _dlg_prep = None                  # ventanita de "Acelerar" que se abre al instante, antes de que el análisis anterior termine de cerrarse
+    _prep_modo = None                 # 'suave' / 'cancelar': lo que se eligió en esa ventanita mientras se preparaba
     _proc_aparte = None               # el programa aparte que está analizando (subprocess.Popen)
     _t_aparte = None
     _aparte_total = 0
@@ -39,10 +41,21 @@ class BibliotecaMixin:
         if masivo:
             n = AnalizadorBiblioteca._limitar_por_ram(max(1, min(12, os.cpu_count() or 2)))
             base = 0 if forzar else max(0, len(self.biblioteca.todas()) - len(rutas))     # los ya analizados cuentan en el avance
-            dlg = self._dlg_analisis = DialogoAnalisis(None, len(rutas), n, permitir_fondo=not forzar, base=base)
-            dlg.show(); dlg.raise_(); dlg.activateWindow()
-            self._oculta_por_analisis = self.isVisible()
-            self.hide()                                       # el reproductor se oculta mientras se analiza a máxima velocidad
+            if self._dlg_prep is not None:                    # la ventanita ya estaba abierta (botón Acelerar): se la completa con los datos reales
+                dlg = self._dlg_analisis = self._dlg_prep
+                self._dlg_prep = None
+                for sen in (dlg.cancelar, dlg.segundo_plano):
+                    try:
+                        sen.disconnect()
+                    except (RuntimeError, TypeError):
+                        pass
+                dlg.btn.setEnabled(True); dlg.btn_fondo.setEnabled(True)
+                dlg.reconfigurar(len(rutas), n, base)
+            else:
+                dlg = self._dlg_analisis = DialogoAnalisis(None, len(rutas), n, permitir_fondo=not forzar, base=base)
+                dlg.show(); dlg.raise_(); dlg.activateWindow()
+                self._oculta_por_analisis = self.isVisible()
+                self.hide()                                   # el reproductor se oculta mientras se analiza a máxima velocidad
             QApplication.processEvents()                      # que se vea la ventana antes del trabajo pesado de marcar la lista
         self.biblioteca.marcar(rutas)
         a = AnalizadorBiblioteca(rutas, forzar=forzar, modo_max=masivo)
@@ -57,6 +70,7 @@ class BibliotecaMixin:
             self.btn_reanalizar.setText("⚡ Acelerar")
             self.btn_reanalizar.setToolTip("Pasa el análisis a máxima velocidad: aparece una ventanita con el avance y el reproductor se oculta hasta que termine")
         a.progreso.connect(lambda i, t: self._set_status(f"{texto}: {i}/{t}"))
+        a.tema_fallo.connect(self._tema_danado_analisis)
         a.tema_listo.connect(self._tema_analizado)        # los temas terminados se acumulan y la lista se actualiza por lotes
         a.terminado.connect(fin)
         self._analizador_bib = a
@@ -112,6 +126,10 @@ class BibliotecaMixin:
         self._reordenar_pronto(ms_ord, fijo=True)
 
     # ---------- análisis en un programa aparte (miles de temas) ----------
+    def _tema_danado_analisis(self, ruta, motivo):
+        """El análisis no pudo leer este archivo: va al historial de temas dañados."""
+        self._anotar_danado(ruta, motivo)
+
     def _aparte_vivo(self):
         p = self._proc_aparte
         return (p is not None and p.poll() is None) or aparte_activo()
@@ -243,11 +261,43 @@ class BibliotecaMixin:
         self._modo_siguiente = modo
         a.cancelar = True
 
+    def _mostrar_prep(self):
+        """Botón ⚡ Acelerar con un análisis en curso: la ventanita aparece YA (el análisis anterior puede tardar en cerrarse: termina el tema
+        que tiene entre manos) y se completa cuando arranca el análisis rápido."""
+        if self._dlg_prep is not None:
+            return
+        dlg = self._dlg_prep = DialogoAnalisis(None, max(1, len(self.biblioteca._cola)), 0, permitir_fondo=True, base=0)
+        dlg.lbl.setText("( … )")
+        dlg.lbl_vel.setText("⏳ Terminando el tema que se estaba analizando…")
+        dlg.cancelar.connect(lambda: self._prep_elegido("cancelar"))
+        dlg.segundo_plano.connect(lambda: self._prep_elegido("suave"))
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
+        self._oculta_por_analisis = self.isVisible()
+        self.hide()
+        QApplication.processEvents()
+
+    def _prep_elegido(self, que):
+        """Se tocó 'Detener' o 'Seguir en segundo plano' en la ventanita mientras se preparaba el análisis rápido."""
+        self._prep_modo = que
+        dlg, self._dlg_prep = self._dlg_prep, None
+        if dlg is not None:
+            self._cerrar_dlg(dlg)
+
     def _reiniciar_analisis(self, modo, intentos=0):
-        if self._analisis_en_curso() and intentos < 75:       # esperar a que el hilo anterior termine de cerrarse
+        if self._analisis_en_curso():                         # esperar a que el hilo anterior termine de cerrarse (puede tardar: termina el tema que analiza)
+            if self._prep_modo is None and self._dlg_prep is None and intentos >= 75:
+                return                                        # sin ventanita de espera y pasó mucho: se deja (como antes)
             QTimer.singleShot(200, lambda: self._reiniciar_analisis(modo, intentos + 1))
             return
+        elegido, self._prep_modo = self._prep_modo, None
+        if elegido == "cancelar":
+            return
+        if elegido == "suave":
+            modo = "suave"
         self._auto_analizar(modo)
+        if self._dlg_prep is not None:                        # no hubo nada que analizar a máxima velocidad: se cierra la ventanita y vuelve el reproductor
+            dlg, self._dlg_prep = self._dlg_prep, None
+            self._cerrar_dlg(dlg)
 
     def _auto_analizar(self, modo=None):
         """Los temas nuevos de la lista se analizan solos (se ven con ⏳ hasta que terminan).
@@ -454,6 +504,7 @@ class BibliotecaMixin:
                 self._set_status("🔇 Pausá la música para analizar a máxima velocidad (el reproductor se oculta)")
             else:
                 self._set_status("⚡ Pasando a máxima velocidad…")
+                self._mostrar_prep()                              # la ventanita aparece al instante
                 self._pasar_a_modo("max")                         # análisis normal en curso → a toda velocidad con la ventanita
             return
         self._fallidos = set()                                    # lo que quedó sin analizar (cancelado, etc.) se vuelve a intentar

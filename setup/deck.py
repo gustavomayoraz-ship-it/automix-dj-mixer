@@ -7,7 +7,7 @@ import time
 import numpy as np
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
-from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt, Signal
 from setup.ajustes import NIVEL_V2, SUPPORTED, TARGET_LUFS_RMS, fmt_time
 from setup.analisis import (_guardar_cache, _limpiar_grilla_cache, _mantener_vivo, aplicar_uno, desfase_rejilla_auto,
                             desfase_rejilla_bombos, desplazar_rejilla, grilla_manual, load_audio_stereo, plegar_bpm)
@@ -19,6 +19,8 @@ from setup.wsola import WsolaFlujo
 
 
 class Deck(QFrame):
+    audio_fallo = Signal(str)          # el audio de este tema no se pudo cargar (archivo dañado): la ventana lo anota para saltearlo
+
     def __init__(self, name, color, on_analysis_cb):
         super().__init__()
         self.name = name
@@ -253,6 +255,8 @@ class Deck(QFrame):
             log(f"deck {self.name}", f"audio listo: {len(y32) / sr:.1f} s · {sr} Hz · auto-gain x{ag:.2f} · {os.path.basename(path)}")
         except Exception as e:
             print("Error cargando audio:", e)
+            if path == self.path:
+                self.audio_fallo.emit(path)
 
     SILENCIO_FIN_DB = -50.0      # por debajo de esto (RMS en ventanas de 50 ms) se considera silencio
     SILENCIO_FIN_MIN_S = 1.0     # solo se recorta si el silencio final dura al menos esto

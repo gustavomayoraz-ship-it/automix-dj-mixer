@@ -180,7 +180,7 @@ class AutomaticoMixin:
         def candidatos():
             res = []
             for orden, r in enumerate(candidatas):
-                if bib._clave(r) in self._tocados or not os.path.isfile(r):
+                if bib._clave(r) in self._tocados or bib._clave(r) in self._danados or not os.path.isfile(r):
                     continue
                 if bib.esta_salteado(r):         # ← SALTEADO: no se considera
                     continue
@@ -229,7 +229,7 @@ class AutomaticoMixin:
             grupos = {}
             for r in candidatas:
                 k = bib._clave(r)
-                if k in self._tocados_rnd or bib.esta_salteado(r):
+                if k in self._tocados_rnd or k in self._danados or bib.esta_salteado(r):
                     continue
                 bpm = bib.info(r)[0]
                 if not bpm:                                   # sin analizar: no se considera
@@ -275,7 +275,7 @@ class AutomaticoMixin:
                 import traceback; traceback.print_exc()
         # ← lista base: si hay filtro, solo lo visible; si no, la lista completa (como antes)
         todas = self.biblioteca.todas_visibles() if self._hay_filtro_busqueda() else self.biblioteca.todas()
-        activas = [r for r in todas if not self.biblioteca.esta_salteado(r)]
+        activas = [r for r in todas if not self.biblioteca.esta_salteado(r) and self.biblioteca._clave(r) not in self._danados]
         if not activas:
             if self.biblioteca.todas():
                 return None, "todos los temas están salteados (destildá alguno con ⏭)"
@@ -285,7 +285,7 @@ class AutomaticoMixin:
             if os.path.normcase(os.path.abspath(r)) == clave:
                 for j in range(i + 1, len(todas)):
                     rr = todas[j]
-                    if os.path.isfile(rr) and not self.biblioteca.esta_salteado(rr):
+                    if os.path.isfile(rr) and not self.biblioteca.esta_salteado(rr) and self.biblioteca._clave(rr) not in self._danados:
                         return rr, None
                 for rr in activas:
                     if os.path.isfile(rr):
@@ -295,6 +295,37 @@ class AutomaticoMixin:
             if os.path.isfile(rr):
                 return rr, None
         return None, "biblioteca vacía"
+
+    def _anotar_danado(self, ruta, motivo):
+        """Anota el tema en el historial (cache/temas_danados.json) y en la lista de los que se saltean."""
+        if not os.path.isfile(ruta):                       # archivo que ya no está (disco desconectado, movido): no es un tema dañado
+            return
+        self._danados.add(self.historial_danados.registrar(ruta, motivo))
+        self._actualizar_btn_danados()
+
+    def _actualizar_btn_danados(self):
+        n = len(self.historial_danados.datos)
+        self.btn_danados.setText(f"⚠ {n}" if n else "⚠")
+
+    def _danados_cambio(self):
+        """El historial cambió desde su ventana: se actualizan los temas que se saltean y el contador."""
+        self._danados = self.historial_danados.claves()
+        self._actualizar_btn_danados()
+
+    def _abrir_danados(self):
+        DialogoDanados(self, self.historial_danados, self._danados_cambio).exec()
+
+    def _tema_danado(self, path, deck):
+        """El audio de un tema no se pudo cargar: se anota para no volver a elegirlo. Si lo había cargado la carga automática
+        (Random incluido) y el deck no está sonando, se carga otro enseguida."""
+        self._anotar_danado(path, "no se pudo cargar el audio")
+        nombre = os.path.basename(path)
+        if path == self._carga_auto_path and not deck.playing and self.carga_auto:
+            self._set_status(f"⚠️ {nombre} está dañado y no se puede cargar: se salta y se busca otro")
+            self._carga_auto_path = None
+            QTimer.singleShot(300, lambda d=deck, p=path: self._cargar_siguiente(d) if d.path == p else None)
+        else:
+            self._set_status(f"⚠️ {nombre} está dañado y no se puede cargar (la carga automática y el Random lo van a saltear)")
 
     def _cargar_siguiente(self, destino):
         if not self.carga_auto:
@@ -307,6 +338,7 @@ class AutomaticoMixin:
         if ruta is None:
             self._set_status(f"🔁 Carga automática: {motivo}")
             return
+        self._carga_auto_path = ruta
         destino.load_track(ruta)
         k_sale, k_entra = self._clave_de(otro), self.biblioteca.info(ruta)[1]
         extra = f"  🎼 {k_sale}→{k_entra}" if (k_sale and k_entra) else ""

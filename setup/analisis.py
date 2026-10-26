@@ -1022,8 +1022,41 @@ def _guardar_cache(cache_key, result):
 
 
 
+def _leer_estereo_parcial(path, sr):
+    """Para archivos con tramos dañados (libsndfile corta con 'Unspecified internal error' a mitad): lee lo que se pueda y se queda con eso.
+    Devuelve (audio (n, 2), sr) o None si se leyeron menos de 15 s."""
+    import soundfile as sf
+    bloques = []; n = 0
+    with sf.SoundFile(path) as f:
+        sr0 = f.samplerate
+        while True:
+            try:
+                b = f.read(65536, dtype="float32", always_2d=True)
+            except Exception:
+                break                                      # tramo dañado: se queda con lo leído hasta acá
+            if len(b) == 0:
+                break
+            bloques.append(b if b.shape[1] >= 2 else np.repeat(b, 2, axis=1)); n += len(b)
+    if n < 15 * sr0:
+        return None
+    y = np.concatenate(bloques)[:, :2]
+    if sr0 != sr:
+        y = librosa.resample(y.T, orig_sr=sr0, target_sr=sr).T
+    print(f"[audio] {os.path.basename(str(path))}: archivo con tramos dañados, se cargaron {n / sr0:.0f} s")
+    return np.ascontiguousarray(y, dtype=np.float32), sr
+
+
 def load_audio_stereo(path, sr=44100):
-    y, _ = librosa.load(path, sr=sr, mono=False)
+    try:
+        y, _ = librosa.load(path, sr=sr, mono=False)
+    except Exception as e1:
+        try:
+            r = _leer_estereo_parcial(path, sr)
+        except Exception:
+            r = None
+        if r is None:
+            raise e1 from None
+        return r
     if y.ndim == 1:
         y = np.stack([y, y])
     return y.T, sr

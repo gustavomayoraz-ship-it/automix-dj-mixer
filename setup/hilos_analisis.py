@@ -114,6 +114,7 @@ def _ram_libre_gb():
 
 class AnalizadorBiblioteca(QThread):
     progreso = Signal(int, int)
+    tema_fallo = Signal(str, str)         # (ruta, motivo): el archivo no se pudo leer (dañado): va al historial de temas dañados
     en_curso = Signal(str)                # qué temas se están analizando ahora (para que la ventana muestre actividad)
     tema_listo = Signal(str)
     terminado = Signal()
@@ -179,6 +180,12 @@ class AnalizadorBiblioteca(QThread):
                         return
                     print(f"[análisis] el análisis en paralelo falló (intento {intento}/3)" + (": se vuelve a armar" if intento < 3 else ": se sigue de a un tema"))
         self._analizar_secuencial()
+
+    def _avisar_fallo(self, ruta, e):
+        """Si el error es de lectura del archivo (dañado, formato ilegible), se avisa para anotarlo en el historial de temas dañados."""
+        txt = f"{type(e).__name__}: {e}"
+        if any(m in txt for m in ("LibsndfileError", "NoBackendError", "Unspecified internal error", "Format not recognised", "System error")):
+            self.tema_fallo.emit(ruta, "no se pudo leer el archivo al analizar (" + str(e).strip()[:80] + ")")
 
     def _rutas_livianas_primero(self):
         """Los temas ordenados de menor a mayor tamaño de archivo (un mix de una hora tarda minutos; un tema de 4 minutos, segundos)."""
@@ -343,8 +350,9 @@ class AnalizadorBiblioteca(QThread):
                         self._hechos.add(ruta)          # este tema se colgó: no se reintenta
                         self.progreso.emit(i, total)
                     break
-                except Exception:
+                except Exception as e_tema:
                     import traceback; traceback.print_exc()      # ese tema falló: se sigue con los demás
+                    self._avisar_fallo(ruta, e_tema)
                     self._hechos.add(ruta)
                     self.tema_listo.emit(ruta); self.progreso.emit(i, total)
                     continue
@@ -414,8 +422,9 @@ class AnalizadorBiblioteca(QThread):
                         data.update(analizar_archivo(ruta, solo_clave=True))
                         _guardar_cache(cache_key, data)
                         print(f"Clave y voz: {os.path.basename(ruta)} -> {(data.get('key') or {}).get('camelot') or '?'}")
-            except Exception:
+            except Exception as e_tema:
                 import traceback; traceback.print_exc()
+                self._avisar_fallo(ruta, e_tema)
             self.tema_listo.emit(ruta)
             self.progreso.emit(i, total)
 

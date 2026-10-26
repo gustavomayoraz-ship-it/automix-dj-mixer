@@ -3,7 +3,7 @@ import sys
 import time
 import numpy as np
 import sounddevice as sd
-from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSizePolicy, QSlider, QSpinBox, QSplitter, QVBoxLayout, QWidget
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import QTimer, Qt
 from setup.ajustes import ANCHO_LISTA, ESC_MIN, fmt_time
@@ -12,7 +12,9 @@ from setup.barra import BarraProgresoConMarca
 from setup.base import CONSOLA, log
 from setup.biblioteca import Biblioteca
 from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, DEF_FIN_A, DEF_GAMMA_A, guardar_config, leer_config
+from setup.danados import HistorialDanados
 from setup.deck import Deck
+from setup.dialogo_danados import DialogoDanados
 from setup.mezclador import GlobalMixer
 from setup.panel_cruce import PanelCruce
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA, aplicar_tema
@@ -58,6 +60,9 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.auto_s = int(cfg.get("auto_s", 30))
         self._fader_prev = None
         self._carga_pendiente = False
+        self.historial_danados = HistorialDanados()          # temas dañados (se guarda en cache/temas_danados.json)
+        self._danados = self.historial_danados.claves()      # sus claves: la carga automática y el Random los saltean
+        self._carga_auto_path = None       # último tema que cargó solo la carga automática (si ese falla, se carga otro)
         self._mix_pausa_hecha = False
         self._marca_frac = float(cfg.get("marca_frac", DEF_MARCA))
         if self._marca_frac < 0:
@@ -124,7 +129,13 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_agrupar.setToolTip("Muestra la lista separada por carpetas: el nombre de la carpeta como título y debajo sus temas.\n"
                                     "Clic en un título para cerrar o abrir esa carpeta. Volvé a tocar el botón para la lista plana.")
         self.btn_agrupar.clicked.connect(self._alternar_agrupada)
-        fila_orden = QHBoxLayout(); fila_orden.addWidget(self.btn_random); fila_orden.addWidget(self.btn_agrupar)
+        self.btn_danados = QPushButton("⚠")
+        self.btn_danados.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_danados.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)       # botón chico: no le saca lugar a Random y Por carpetas
+        self.btn_danados.setToolTip("⚠ Historial de temas dañados: archivos que no se pudieron cargar o analizar (la carga automática y el Random los saltean)")
+        self.btn_danados.clicked.connect(self._abrir_danados)
+        self._actualizar_btn_danados()
+        fila_orden = QHBoxLayout(); fila_orden.addWidget(self.btn_random); fila_orden.addWidget(self.btn_agrupar); fila_orden.addWidget(self.btn_danados)
         lib_lay.addLayout(fila_orden)
         # 🎼 Armónico y 🥁 En frase se quitaron de la pantalla: quedan siempre apagados
         # (el siguiente tema es el que sigue en la lista, ordenada por BPM, y la mezcla automática arranca al llegar a la marca).
@@ -158,6 +169,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.deck_a = Deck("A", COLOR_DECK_A, self._on_analysis)
         self.deck_b = Deck("B", COLOR_DECK_B, self._on_analysis)
         self.deck_a.on_ubicar_cb = self.deck_b.on_ubicar_cb = self._ubicar_en_lista
+        self.deck_a.audio_fallo.connect(lambda p, d=self.deck_a: self._tema_danado(p, d))
+        self.deck_b.audio_fallo.connect(lambda p, d=self.deck_b: self._tema_danado(p, d))
         self.deck_a.on_play_cb = self._auto_sync
         self.deck_b.on_play_cb = self._auto_sync
         # Callback para que el botón reset avise a la ventana y se redibuje el timeline

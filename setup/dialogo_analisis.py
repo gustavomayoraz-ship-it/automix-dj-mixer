@@ -50,7 +50,8 @@ class DialogoAnalisis(QDialog):
         self.lbl_actual.setStyleSheet(f"color:{T['cian']}; font-size:11px;")
         lay.addWidget(self.lbl_actual)
         info = f"Usando {procesos} procesos a máxima velocidad. " if procesos else "Máxima velocidad. "
-        pie = QLabel(info + (pie or "El reproductor queda oculto hasta que termine.")); pie.setWordWrap(True)
+        self._pie_extra = pie or "El reproductor queda oculto hasta que termine."
+        pie = self.lbl_pie = QLabel(info + self._pie_extra); pie.setWordWrap(True)
         pie.setStyleSheet(f"color:{T['suave']}; font-size:11px;")
         lay.addWidget(pie)
         fila = QHBoxLayout(); fila.setSpacing(10); fila.addStretch(1)
@@ -91,6 +92,14 @@ class DialogoAnalisis(QDialog):
         if i >= 3 and dt > 2:
             vel = i / dt
             self.lbl_vel.setText(f"≈ {vel:.1f} temas por segundo  ·  faltan unos {_tiempo((total - i) / max(vel, 1e-6))}")
+
+    def reconfigurar(self, total, procesos=0, base=0):
+        """La ventana se abre al instante (antes de saber cuántos temas hay): acá se le ponen los datos reales."""
+        self._base = max(0, base)
+        self._t0 = time.monotonic()
+        self.lbl_pie.setText((f"Usando {procesos} procesos a máxima velocidad. " if procesos else "Máxima velocidad. ") + self._pie_extra)
+        self.lbl_vel.setText("Preparando…")
+        self.poner(0, total)
 
     def poner_actual(self, texto):
         """Qué temas se están analizando ahora (así se ve actividad aunque el número tarde en cambiar)."""
