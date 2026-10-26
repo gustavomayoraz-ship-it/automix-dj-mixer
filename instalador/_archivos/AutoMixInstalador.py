@@ -37,6 +37,7 @@ PY_VERSIONES = ["3.14.10", "3.14.9", "3.14.8"]          # se prueba en orden: si
 PY_EMBED_URL = "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 VERSION_PY = "3.14"                                      # AutoMix busca sus librerías en dependencias_offline\3.14
+CARPETA_CODIGO = "codigo_fuente"                         # carpeta del repositorio donde está el código de AutoMix (si no existe, se usa la raíz)
 EXCLUIR_AL_ACTUALIZAR = {"cache", "dependencias_offline", "grabaciones", "config", "python", "_descargas", ".git"}
 
 # (nombre, import_name): lista de ESTE programa (las mismas librerías que usa AutoMix en setup/base.py)
@@ -203,8 +204,13 @@ class Instalacion:
         self.descargar(REPO_ZIP, zip_cod, lambda p: avance(f"⬇️ Descargando AutoMix... {p}%" if p is not None else "⬇️ Descargando AutoMix..."))
         raiz_abs = self.raiz.resolve()
         with zipfile.ZipFile(zip_cod) as z:
+            # el código puede estar en la raíz del repositorio o dentro de la carpeta "codigo_fuente"
+            quitar = 2 if any(Path(i.filename).parts[1:2] == (CARPETA_CODIGO,) for i in z.infolist()) else 1
             for info in z.infolist():
-                partes = Path(info.filename).parts[1:]                 # se saca la carpeta de arriba (automix-dj-mixer-main)
+                todas = Path(info.filename).parts
+                if quitar == 2 and todas[1:2] != (CARPETA_CODIGO,):
+                    continue                                           # con carpeta codigo_fuente: solo se baja lo que está adentro
+                partes = todas[quitar:]                                # se saca la carpeta de arriba (automix-dj-mixer-main) y, si existe, codigo_fuente
                 if not partes or info.is_dir() or partes[0] in EXCLUIR_AL_ACTUALIZAR:
                     continue
                 destino = (raiz_abs.joinpath(*partes)).resolve()
