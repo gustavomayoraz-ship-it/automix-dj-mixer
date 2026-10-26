@@ -1,10 +1,66 @@
 """AutoMix — efectos de sonido: lista de efectos, botón que lo reproduce y volumen."""
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
+import math
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
 from setup.config import guardar_config, leer_config
 from setup.efectos import EFECTOS
 from setup.tema import TEMA
 from setup.widgets import qss_marco
+
+
+class ComboCuadricula(QComboBox):
+    """Combo cuya lista, en vez de una columna larguísima, se abre como un rectángulo con todas las opciones en una cuadrícula."""
+
+    def showPopup(self):
+        n = self.count()
+        if n == 0:
+            return
+        T = TEMA
+        pop = QFrame(self.window(), Qt.WindowType.Popup)
+        pop.setObjectName("popFx")
+        pop.setStyleSheet(
+            f"QFrame#popFx {{ background:{T['bg2']}; border:1px solid {T['cian']}; border-radius:8px; }}"
+            f"QPushButton {{ background:{T['bg3']}; color:{T['texto']}; border:1px solid {T['linea']}; border-radius:6px; padding:4px 8px; text-align:left; }}"
+            f"QPushButton:hover {{ border:1px solid {T['cian']}; background:{T['bg1']}; }}"
+            f"QPushButton[actual=\"true\"] {{ border:1px solid {T['ambar']}; color:{T['ambar']}; font-weight:bold; }}")
+        fuente = self.font()
+        fm = QFontMetrics(fuente)
+        ancho_btn = max(fm.horizontalAdvance(self.itemText(i)) for i in range(n)) + 28
+        alto_btn = fm.height() + 14
+        pantalla = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        cols = max(3, round(math.sqrt(n * 1.8)))               # más ancha que alta: rectangular
+        while cols > 2 and cols * (ancho_btn + 6) + 12 > pantalla.width() * 0.92:
+            cols -= 1
+        grid = QGridLayout(pop); grid.setContentsMargins(6, 6, 6, 6); grid.setSpacing(6)
+        for i in range(n):
+            b = QPushButton(self.itemText(i))
+            b.setFont(fuente); b.setFixedSize(ancho_btn, alto_btn); b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setProperty("actual", "true" if i == self.currentIndex() else "false")
+            tip = self.itemData(i, Qt.ItemDataRole.ToolTipRole)
+            if tip:
+                b.setToolTip(str(tip))
+            b.clicked.connect(lambda _=False, k=i: (self.setCurrentIndex(k), pop.close()))
+            grid.addWidget(b, i // cols, i % cols)
+        pop.adjustSize()
+        pos = self.mapToGlobal(QPoint(0, self.height()))
+        x = min(max(pantalla.left(), pos.x()), pantalla.right() - pop.width())
+        y = pos.y()
+        if y + pop.height() > pantalla.bottom():                # no entra abajo: se abre arriba del combo
+            y = max(pantalla.top(), self.mapToGlobal(QPoint(0, 0)).y() - pop.height())
+        pop.move(x, y)
+        pop.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self._popup = pop
+        pop.show()
+
+    def hidePopup(self):
+        p = getattr(self, "_popup", None)
+        if p is not None:
+            try:
+                p.close()
+            except RuntimeError:
+                pass
+        super().hidePopup()
 
 
 class EfectosMixin:
@@ -20,14 +76,13 @@ class EfectosMixin:
         fila = QHBoxLayout(); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(6)         # arriba: 🎆 + lista de efectos + volumen (largo)
         col_fx.addLayout(fila)
         fila.addWidget(QLabel("🎆"))
-        self.cmb_fx = QComboBox()
+        self.cmb_fx = ComboCuadricula()
         self.cmb_fx.setFixedHeight(28); self.cmb_fx.setMinimumContentsLength(8)
         self.cmb_fx.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.cmb_fx.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         for i, (nombre, _f, tip) in enumerate(EFECTOS):
             self.cmb_fx.addItem(nombre, i)
             self.cmb_fx.setItemData(i, tip, Qt.ItemDataRole.ToolTipRole)
-        self.cmb_fx.setMaxVisibleItems(16)               # lista larga: se ve con barra de desplazamiento
         _n = cfg.get("fx_nombre")                        # se recuerda por nombre (el orden de la lista puede crecer)
         _i = next((k for k, e in enumerate(EFECTOS) if e[0] == _n), 0)
         self.cmb_fx.setCurrentIndex(_i)
