@@ -32,7 +32,7 @@ from typing import Callable, Optional
 # ----------------------------------------------------------------------------------------------------
 # Configuración
 # ----------------------------------------------------------------------------------------------------
-REPO_ZIP = "https://github.com/gustavomayoraz-ship-it/automix-dj-mixer/archive/refs/heads/main.zip"
+REPO_ZIP = "https://github.com/gustavomayoraz-ship-it/AutoMix_DJ/archive/refs/heads/main.zip"
 PY_VERSIONES = ["3.14.10", "3.14.9", "3.14.8"]          # se prueba en orden: si una ya no está en python.org, se usa la siguiente
 PY_EMBED_URL = "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
@@ -210,7 +210,7 @@ class Instalacion:
                 todas = Path(info.filename).parts
                 if quitar == 2 and todas[1:2] != (CARPETA_CODIGO,):
                     continue                                           # con carpeta codigo_fuente: solo se baja lo que está adentro
-                partes = todas[quitar:]                                # se saca la carpeta de arriba (automix-dj-mixer-main) y, si existe, codigo_fuente
+                partes = todas[quitar:]                                # se saca la carpeta de arriba (AutoMix_DJ-main) y, si existe, codigo_fuente
                 if not partes or info.is_dir() or partes[0] in EXCLUIR_AL_ACTUALIZAR:
                     continue
                 destino = (raiz_abs.joinpath(*partes)).resolve()
