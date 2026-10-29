@@ -29,7 +29,7 @@ GRUPOS = [
     ("🎛 Estrategia del cruce Auto", [
         ("ESTRATEGIA", "Estrategia (0 clásica · 1 Pro · 2 como mi manual)", 0, 2, 1, "{:.0f}",
          "2 = el Auto mezcla igual que tu cruce MANUAL: tu forma de A/B, tu duración (el deslizador «Duración»), la pausa del 50 % y el\nfrenado de abajo; solo redondea la duración a compases enteros.\n1 = Pro: mezcla larga en frase (B entra sin graves, el bajo cambia a la mitad, A se va después), sin pausa ni frenado.\n0 = la clásica (la diseña el programa para cada par)."),
-        ("MAN_COMPASES", "Compases del Auto «como mi manual» (0 = segundos)", 0, 32, 1, "{:.0f}",
+        ("MAN_COMPASES", "Compases del Auto «como mi manual» (0 = segundos)", 0, 12, 1, "{:.0f}",
          "Largo del fundido de la estrategia 2 en compases: dura lo mismo en compases a cualquier tempo (a 96 BPM, 8 compases son unos 20 s;\na 136 BPM, unos 14 s). 0 = usar los segundos del deslizador «Duración» (redondeados a compases)."),
         ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
          "Largo de la mezcla Pro en compases. Se usa el más cercano de 4, 8, 16 o 32 que quepa en lo que le queda al tema que sale.\n16 compases a 96 BPM son unos 40 s · 8 compases, unos 20 s."),
@@ -119,14 +119,16 @@ class VistaRitmo(QWidget):
             titulo = f"Pro · {n} compases ≈ {D:.0f} s"
         elif e == 2:
             if cruce_auto.MAN_COMPASES >= 1:
-                n = int(round(cruce_auto.MAN_COMPASES)); D = n * self.BAR
-                titulo = f"{n} compases ≈ {D:.0f} s"
+                n = int(round(cruce_auto.MAN_COMPASES)); D = min(cruce_auto.MAX_SEG_MANUAL, n * self.BAR)
+                titulo = f"{n} compases ≈ {D:.0f} s en total"
             else:
                 try:
-                    D = float(self.v.spin_mix.value())
+                    D = min(cruce_auto.MAX_SEG_MANUAL, float(self.v.spin_mix.value()))
                 except Exception:
                     D = 20.0
-                titulo = f"{D:.0f} s"
+                titulo = f"{D:.0f} s en total"
+            if cruce_auto.hay_pausa():                                # el tiempo estipulado INCLUYE la pausa: el crossfader recorre lo que queda
+                D = max(2.0, D - cruce_auto.PAUSA)
         else:
             D = max(cruce_auto.MIN_DUR, min(cruce_auto.MAX_DUR, cruce_auto.DUR_IDEAL))
             titulo = f"clásico {D:.0f} s"
@@ -149,7 +151,7 @@ class VistaRitmo(QWidget):
     @staticmethod
     def _tiempo_de(pos, D, pausa, pc, pbz):
         """Segundos en que el crossfader llega a esa posición (primera mitad)."""
-        lo, hi = 0.0, 0.5 * D
+        lo, hi = 0.0, D + (cruce_auto.PAUSA if pausa else 0.0)                 # (hasta el final: la estrategia 2 recorre todo el crossfader con su ritmo)
         for _ in range(30):
             m = 0.5 * (lo + hi)
             if cruce_auto._t_de_T(m, D, pausa, pc, pbz) < pos:
@@ -189,7 +191,7 @@ class VistaRitmo(QWidget):
             pts["ent_min"] = QPointF(self._X(cruce_auto.ENT_MIN * D, eje), y25); pts["ent_max"] = QPointF(self._X(cruce_auto.ENT_MAX * D, eje), y25)
             pts["rb"] = QPointF(self._X((cruce_auto.ENT_MIN + cruce_auto.RB_MIN) * D, eje), yt)
         if e != 1:
-            pts["pausa"] = QPointF(self._X(0.5 * D + pa, eje), yt)
+            pts["pausa"] = QPointF(self._X(cruce_auto.frac_pausa(pc, pbz) * D + pa, eje), yt)
         if pc is not None:
             wa = max(cruce_auto.ZONA_MIN, pc - pbz) if pbz is not None else 0.10
             wd = max(wa, (0.5 - pc) * cruce_auto.ZONA_ACEL)
@@ -223,7 +225,8 @@ class VistaRitmo(QWidget):
         pts = self._puntos()
         if pausa and pa > 0:                                                                   # banda de la pausa
             p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(am.red(), am.green(), am.blue(), 40))
-            p.drawRect(QRectF(X(0.5 * D), yt, X(0.5 * D + pa) - X(0.5 * D), yb - yt))
+            tq = cruce_auto.frac_pausa(pc, pbz) * D
+            p.drawRect(QRectF(X(tq), yt, X(tq + pa) - X(tq), yb - yt))
         if "frena_ini" in pts:                                                                 # banda del frenado
             p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(255, 255, 255, 16))
             p.drawRect(QRectF(pts["frena_ini"].x(), yt, pts["frena_fin"].x() - pts["frena_ini"].x(), yb - yt))
@@ -335,13 +338,15 @@ class VistaRitmo(QWidget):
         t = self._seg(pos.x(), eje)
         if k == "dur":
             Dn = max(2.0, t - pa)
+            if e == 2:
+                Dn = max(2.0, t)                                             # (en «como mi manual» el tiempo ya incluye la pausa)
             if e == 0:
                 ideal = float(max(6, min(40, round(Dn))))
                 self._aplicar({"DUR_IDEAL": ideal, "MIN_DUR": min(cruce_auto.MIN_DUR, ideal), "MAX_DUR": max(cruce_auto.MAX_DUR, ideal)})
             elif e == 1:
                 self._aplicar({"PRO_COMPASES": float(min((4, 8, 16, 32), key=lambda c: abs(c - Dn / self.BAR)))})
             elif cruce_auto.MAN_COMPASES >= 1:
-                self._aplicar({"MAN_COMPASES": float(max(2, min(32, round(Dn / self.BAR))))})
+                self._aplicar({"MAN_COMPASES": float(max(2, min(12, round(Dn / self.BAR))))})
             else:
                 try:
                     self.v.spin_mix.setValue(int(round(Dn)))                  # sin compases: es el deslizador «Duración» de la ventana principal
@@ -368,7 +373,7 @@ class VistaRitmo(QWidget):
         elif k == "rb":
             self._aplicar({"RB_MIN": round(max(0.02, min(0.30, t / max(1.0, D) - cruce_auto.ENT_MIN)), 2)})
         elif k == "pausa":
-            self._aplicar({"PAUSA": round(max(0.0, min(8.0, t - 0.5 * D)) * 10.0) / 10.0})
+            self._aplicar({"PAUSA": round(max(0.0, min(10.0, t - cruce_auto.frac_pausa(pc, pbz) * D)) * 10.0) / 10.0})
         elif k in ("frena_ini", "frena_fin") and pc is not None:
             ps = cruce_auto._t_de_T(min(t, 0.5 * D), D, False, pc, pbz)             # posición del crossfader a ese segundo
             if k == "frena_ini":
@@ -478,6 +483,293 @@ class VistaIncompatible(QWidget):
             self.d.inc_set("INC_SUBE", round(max(0.0, min(3.0, t - te)), 1))
 
 
+class GraficoCruceSimple(VistaRitmo):
+    """El dibujo del panel nuevo (estrategia «como mi manual»): las dos curvas, la pausa y tres marcas que se arrastran:
+    ● naranja = dónde se detiene el cruce · ▮ naranja = cuánto dura la pausa · ● roja = hasta dónde acelera · ● amarilla = el fin (la duración)."""
+    ROJO = "#ef4444"
+    AMARILLO = "#fde047"
+
+    def __init__(self, ventana, dlg=None):
+        super().__init__(ventana, dlg)
+        self.setFixedHeight(200)
+        self.setToolTip("Arrastrá las marcas:\n● naranja = dónde se detiene el cruce (los dos temas suenan a la par)\n▮ naranja (borde derecho de la banda) = cuánto dura la pausa\n"
+                        "● roja = hasta dónde sigue frenado antes de acelerar\n● amarilla = el final del cruce (la duración)")
+
+    @staticmethod
+    def _r(pc):
+        """Posición del crossfader donde termina la aceleración (la marca roja): la que se eligió, o el cruce de las dos curvas."""
+        q = cruce_auto.pausa_pos()
+        r = float(cruce_auto.ACEL_POS) if cruce_auto.ACEL_POS > 0 else (float(pc) if pc is not None else 0.3)
+        return min(max(r, 0.05), q - 0.03)
+
+    @staticmethod
+    def _tq(D, pc, pbz):
+        return cruce_auto.frac_pausa(pc, pbz) * D                       # segundo en que empieza la pausa
+
+    def _y_pausa(self):
+        """Altura del punto naranja: sobre la curva del tema que sale, en la posición donde se detiene."""
+        x0, x1, yt, yb = self._caja()
+        vs, _ve = self._volumenes(cruce_auto.pausa_pos())
+        return yb - vs * (yb - yt)
+
+    def _puntos(self):
+        D, pausa, pc, pbz, e, _t = self._caso()
+        pa = cruce_auto.PAUSA if pausa else 0.0
+        eje = self._eje(D + pa, e)
+        x0, x1, yt, yb = self._caja()
+        tq = self._tq(D, pc, pbz)
+        yp = self._y_pausa()
+        pts = {"dur": QPointF(self._X(D + pa, eje), yb), "pausa": QPointF(self._X(tq, eje), yp)}
+        if pausa and pa > 0:
+            pts["pausa_len"] = QPointF(self._X(tq + pa, eje), yp)
+        pts["acel"] = QPointF(self._X(self._tiempo_de(self._r(pc), D, pausa, pc, pbz), eje), yb)
+        return pts
+
+    def _cerca(self, pos):
+        pts = self._puntos()
+        d = {k: (pos - pt).manhattanLength() for k, pt in pts.items()}
+        if not d or min(d.values()) > 16.0:
+            return []
+        m = min(d.values())
+        orden = ["acel", "pausa", "pausa_len", "dur"]
+        return sorted((k for k in pts if d[k] <= m + 4.0), key=lambda k: (round(pts[k].x(), 1), orden.index(k)))
+
+    def paintEvent(self, ev):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        D, pausa, pc, pbz, e, titulo = self._caso()
+        pa = cruce_auto.PAUSA if pausa else 0.0
+        total = D + pa; eje = self._eje(total, e)
+        x0, x1, yt, yb = self._caja()
+        X = lambda seg: self._X(seg, eje)
+        ca, cb, am = QColor(COLOR_DECK_A), QColor(COLOR_DECK_B), QColor(TEMA["ambar"])
+        rojo, amar = QColor(self.ROJO), QColor(self.AMARILLO)
+        p.setPen(QPen(QColor(TEMA["linea"]), 1)); p.setBrush(QColor("#070a12")); p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
+        paso = 10 if eje <= 60 else 20
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1))
+        for seg in range(0, int(eje) + 1, paso):
+            p.drawLine(QPointF(X(seg), yt), QPointF(X(seg), yb))
+        p.drawLine(QPointF(x0, (yt + yb) / 2), QPointF(x1, (yt + yb) / 2))
+        fs = QFont(self.font()); fs.setPointSizeF(8.0); p.setFont(fs)
+        p.setPen(QColor("#8fa3b8"))
+        p.drawText(QRectF(2, yt - 6, x0 - 6, 12), int(Qt.AlignmentFlag.AlignRight), "100 %"); p.drawText(QRectF(2, yb - 6, x0 - 6, 12), int(Qt.AlignmentFlag.AlignRight), "0")
+        for seg in range(0, int(eje) + 1, paso):
+            p.drawText(QRectF(X(seg) - 20, yb + 4, 40, 14), int(Qt.AlignmentFlag.AlignHCenter), f"{seg} s")
+        pts = self._puntos()
+        tq = self._tq(D, pc, pbz)
+        if pausa and pa > 0:                                                                   # banda de la pausa
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(am.red(), am.green(), am.blue(), 46))
+            p.drawRect(QRectF(X(tq), yt, X(tq + pa) - X(tq), yb - yt))
+        n = 220
+        pa_pts, pb_pts = [], []
+        for i in range(n + 1):
+            T = total * i / n
+            vs, ve = self._volumenes(cruce_auto._t_de_T(T, D, pausa, pc, pbz))
+            pa_pts.append(QPointF(X(T), yb - vs * (yb - yt))); pb_pts.append(QPointF(X(T), yb - ve * (yb - yt)))
+        def curva(lista, c):
+            g = QPolygonF(lista + [QPointF(lista[-1].x(), yb), QPointF(lista[0].x(), yb)])
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(c.red(), c.green(), c.blue(), 34)); p.drawPolygon(g)
+            p.setBrush(Qt.BrushStyle.NoBrush); p.setPen(QPen(c, 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)); p.drawPolyline(QPolygonF(lista))
+        curva(pa_pts, ca); curva(pb_pts, cb)
+        # la pelotita: recorre el cruce en tiempo real
+        ciclo = total + self.PAUSA_FINAL
+        T = min((time.perf_counter() - self._t0) % max(0.1, ciclo), total)
+        pos = cruce_auto._t_de_T(T, D, pausa, pc, pbz)
+        vs, ve = self._volumenes(pos)
+        bx = X(T)
+        p.setPen(QPen(QColor(255, 255, 255, 50), 1, Qt.PenStyle.DotLine)); p.drawLine(QPointF(bx, yt), QPointF(bx, yb))
+        for val, c in ((vs, ca), (ve, cb)):
+            by = yb - val * (yb - yt)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(c.red(), c.green(), c.blue(), 90)); p.drawEllipse(QPointF(bx, by), 8.5, 8.5)
+            p.setBrush(QColor("#ffffff")); p.drawEllipse(QPointF(bx, by), 3.8, 3.8)
+        # marca amarilla: el fin del cruce
+        pt = pts["dur"]
+        p.setPen(QPen(amar, 2.0)); p.drawLine(QPointF(pt.x(), yt), QPointF(pt.x(), yb))
+        p.setBrush(QColor("#ffffff")); p.setPen(QPen(amar, 2.4)); p.drawEllipse(pt, 6.0, 6.0)
+        p.setPen(amar); p.drawText(QRectF(pt.x() - 100, yb - 22, 92, 12), int(Qt.AlignmentFlag.AlignRight), "fin")
+        # línea verde: en qué momento se traspasa el bajo («Bajo (cambia)»)
+        ps = getattr(self.v, "punto_s", 0.5)
+        tb = ps * D + (pa if (pausa and ps * D >= tq) else 0.0)
+        xb = X(tb); verde = QColor(TEMA["verde"])
+        p.setPen(QPen(verde, 1.8, Qt.PenStyle.DashLine)); p.drawLine(QPointF(xb, yt + 14), QPointF(xb, yb))
+        p.setPen(verde); p.drawText(QRectF(xb + 4, yt + 14, 60, 12), int(Qt.AlignmentFlag.AlignLeft), "bajo")
+        # marca roja: hasta dónde acelera
+        if "acel" in pts:
+            pt = pts["acel"]
+            p.setPen(QPen(rojo, 2.0)); p.drawLine(QPointF(pt.x(), yt), QPointF(pt.x(), yb))
+            p.setBrush(QColor("#ffffff")); p.setPen(QPen(rojo, 2.4)); p.drawEllipse(pt, 6.0, 6.0)
+            xa = pt.x(); xq = pts["pausa"].x()
+            p.setPen(QPen(QColor(rojo.red(), rojo.green(), rojo.blue(), 150), 1.4)); p.drawLine(QPointF(x0 + 4, yb - 8), QPointF(xa - 4, yb - 8))
+            p.drawLine(QPointF(xa - 10, yb - 12), QPointF(xa - 4, yb - 8)); p.drawLine(QPointF(xa - 10, yb - 4), QPointF(xa - 4, yb - 8))
+            if xa - x0 > 70:
+                p.setPen(rojo); p.drawText(QRectF(x0 + 4, yb - 24, xa - x0 - 8, 12), int(Qt.AlignmentFlag.AlignHCenter), "acelera")
+            if xq - xa > 60:
+                p.setPen(QColor("#c4b5fd")); p.drawText(QRectF(xa + 4, yb - 24, xq - xa - 8, 12), int(Qt.AlignmentFlag.AlignHCenter), f"frena ×{cruce_auto.S2_FRENO:.1f}")
+        # punto naranja: dónde se detiene + el borde que estira la pausa
+        pt = pts["pausa"]
+        p.setPen(QPen(QColor(am.red(), am.green(), am.blue(), 140), 1.4, Qt.PenStyle.DashLine)); p.drawLine(QPointF(pt.x(), pt.y()), QPointF(pt.x(), yb))
+        if "pausa_len" in pts:
+            pl = pts["pausa_len"]
+            p.setPen(QPen(am, 2.0)); p.drawLine(pt, pl)
+            p.setBrush(QColor("#ffffff")); p.setPen(QPen(am, 2.2)); p.drawRoundedRect(QRectF(pl.x() - 4.5, pl.y() - 7.0, 9.0, 14.0), 2.5, 2.5)
+        p.setBrush(QColor(am)); p.setPen(QPen(QColor("#ffffff"), 2.2)); p.drawEllipse(pt, 7.5, 7.5)
+        etx = f"pausa {cruce_auto.PAUSA:.1f} s" if pausa else "sin pausa"
+        p.setPen(am); p.drawText(QRectF(pt.x() + 11, pt.y() - 31, 150, 12), int(Qt.AlignmentFlag.AlignLeft), etx)
+        p.setPen(QColor("#c9d6e6")); p.drawText(QRectF(pt.x() + 11, pt.y() - 18, 150, 12), int(Qt.AlignmentFlag.AlignLeft), f"se detiene al {cruce_auto.pausa_pos() * 100:.0f} %")
+        # arriba: leyenda y datos
+        p.setPen(ca); p.drawText(QRectF(x0, 6, 120, 14), int(Qt.AlignmentFlag.AlignLeft), "● Tema que suena")
+        p.setPen(cb); p.drawText(QRectF(x0 + 112, 6, 110, 14), int(Qt.AlignmentFlag.AlignLeft), "● Tema nuevo")
+        txt_t = f"{titulo}" + (f" (pausa {pa:.1f} s incluida)" if pausa else "")
+        p.setPen(am); p.drawText(QRectF(x0 + 215, 6, x1 - x0 - 215, 14), int(Qt.AlignmentFlag.AlignRight),
+                                 p.fontMetrics().elidedText(txt_t, Qt.TextElideMode.ElideLeft, int(x1 - x0 - 215)))
+        p.setPen(QColor("#ffffff")); p.drawText(QRectF(x0 + 200, 20, x1 - x0 - 200, 12), int(Qt.AlignmentFlag.AlignRight), f"{T:.1f} s · crossfader {pos * 100:.0f} %")
+        p.end()
+
+    def _mover(self, pos):
+        k = self._arr
+        if k == "dur":
+            return super()._mover(pos)                                  # la duración: igual que en el dibujo de siempre
+        D, pausa, pc, pbz, e, _t = self._caso()
+        pa = cruce_auto.PAUSA if pausa else 0.0
+        eje = self._eje(D + pa, e)
+        t = self._seg(pos.x(), eje)
+        if k == "pausa":                                                 # dónde se detiene: la posición del crossfader a ese segundo
+            q = cruce_auto.pos_cruce(max(0.0, min(1.0, t / max(1.0, D))), pc, pbz)
+            self._aplicar({"PAUSA_POS": round(max(0.25, min(0.75, q)), 2)})
+        elif k == "pausa_len":                                           # cuánto dura: de medio en medio segundo, hasta 10 s
+            self._aplicar({"PAUSA": round(max(0.0, min(10.0, t - self._tq(D, pc, pbz))) * 2.0) / 2.0})
+        elif k == "acel":                                                # hasta dónde acelera; cerca del cruce de las curvas se pega ahí (= automático)
+            ps = cruce_auto._t_de_T(t, D, pausa, pc, pbz)
+            ps = max(0.05, min(cruce_auto.pausa_pos() - 0.03, ps))
+            auto = pc is not None and abs(ps - pc) < 0.02
+            self._aplicar({"ACEL_POS": 0.0 if auto else round(ps, 2)})
+
+
+class PanelCruceAuto(QFrame):
+    """Panel de ⚙ Ajustes para la estrategia «como mi manual»: el dibujo del cruce y todos sus deslizadores juntos.
+    A, B, B sube en, A termina en, Forma de A y Bajo son los mismos del panel «Forma de cruce A/B» (mover uno mueve el otro)."""
+    DEL_PANEL = (("sl_a", "A (sale):", COLOR_DECK_A, lambda x: f"{x}%"),
+                 ("sl_b", "B (entra):", COLOR_DECK_B, lambda x: f"{x}%"),
+                 ("sl_rb", "B sube en:", COLOR_DECK_B, lambda x: f"{x}%"),
+                 ("sl_fa", "A termina en:", COLOR_DECK_A, lambda x: f"{x}%"),
+                 ("sl_g", "Forma de A:", COLOR_DECK_A, lambda x: f"{x / 10:.1f}"),
+                 ("sl_s", "Bajo (cambia):", TEMA["verde"], lambda x: f"{x}%"))
+
+    def __init__(self, ventana, dlg):
+        super().__init__()
+        self.v = ventana
+        self.d = dlg
+        self.setObjectName("panelnuevo")
+        self.setStyleSheet(qss_marco("QFrame#panelnuevo", "#3b82f6", titulo=False))
+        lay = QVBoxLayout(self); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
+        self.graf = GraficoCruceSimple(ventana, dlg)
+        lay.addWidget(self.graf)
+        gl = QGridLayout(); gl.setHorizontalSpacing(8); gl.setVerticalSpacing(5)
+        gl.setColumnStretch(1, 1); gl.setColumnStretch(5, 1); gl.setColumnMinimumWidth(3, 18)
+        lay.addLayout(gl)
+        self._filas = {}                                                # clave -> (deslizador, valor, función que lo lee, formato)
+        self._bloq = False
+        panel = getattr(ventana, "panel_cruce", None)
+        r = 0
+        for attr, texto, color, fmt in self.DEL_PANEL:
+            ps = getattr(panel, attr, None) if panel is not None else None
+            if ps is None:
+                continue
+            sl, lv = self._fila(gl, r, 0, texto, color, ps.minimum(), ps.maximum(), "Es el mismo deslizador del panel «Forma de cruce A/B».")
+            self._filas[attr] = (sl, lv, (lambda ps=ps: ps.value()), fmt)
+            sl.valueChanged.connect(lambda x, ps=ps, attr=attr: self._del_panel(ps, attr, x))
+            ps.valueChanged.connect(lambda _x, attr=attr: self.sincronizar())
+            r += 1
+        am, rojo = TEMA["ambar"], GraficoCruceSimple.ROJO
+        # (clave, texto, color, mínimo, máximo, lee, formato, cómo se guarda, ayuda)
+        derecha = (
+            ("zacel", "Acelera hasta:", rojo, 0, 75, lambda: cruce_auto.ACEL_POS * 100, lambda x: f"{x}%" if x else "auto", lambda x: {"ACEL_POS": x / 100.0},
+             "Desde el inicio el crossfader va acelerando hasta esta posición (la marca roja). «auto» = hasta que se cruzan las dos curvas, apenas las detecta."),
+            ("zv", "Frenado:", "#c4b5fd", 10, 80, lambda: cruce_auto.S2_FRENO * 10, lambda x: f"×{x / 10:.1f}", lambda x: {"S2_FRENO": x / 10.0},
+             "Desde la marca roja hasta la pausa va frenando. ×1 = no frena · más = llega a la pausa casi quieto. Después de la pausa vuelve a acelerar de a poco hasta el final."),
+            ("pausa", "Pausa:", am, 0, 20, lambda: cruce_auto.PAUSA * 2, lambda x: f"{x / 2:.1f} s", lambda x: {"PAUSA": x / 2.0},
+             "Cuánto tiempo se queda el cruce detenido (de 0 a 10 s, de medio en medio segundo). 0 = sin pausa. El punto naranja del dibujo dice DÓNDE se detiene."),
+        )
+        r = 0
+        for k, texto, color, lo, hi, leer, fmt, guardar_v, tip in derecha:
+            sl, lv = self._fila(gl, r, 4, texto, color, lo, hi, tip)
+            self._filas[k] = (sl, lv, leer, fmt)
+            sl.valueChanged.connect(lambda x, g=guardar_v: self._aplicar_cruce(g(x)))
+            r += 1
+        sl, lv = self._fila(gl, r, 4, "Tiempo:", "#ffffff", 2, 12, "Cuánto dura el cruce (sin contar la pausa).")
+        lv.setMinimumWidth(92)
+        self._tiempo = (sl, lv)
+        sl.valueChanged.connect(self._cambio_tiempo)
+        try:
+            ventana.spin_mix.valueChanged.connect(lambda _x: self.sincronizar())
+        except Exception:
+            pass
+        self.sincronizar()
+
+    @staticmethod
+    def _fila(gl, r, c0, texto, color, lo, hi, tip):
+        l = QLabel(texto); l.setStyleSheet(f"color:{color}; font-weight:bold;"); l.setToolTip(tip)
+        sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(int(lo), int(hi)); sl.setToolTip(tip)
+        lv = QLabel(); lv.setMinimumWidth(46); lv.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        gl.addWidget(l, r, c0); gl.addWidget(sl, r, c0 + 1); gl.addWidget(lv, r, c0 + 2)
+        return sl, lv
+
+    def _del_panel(self, ps, attr, x):
+        """Un deslizador de acá movió el del panel «Forma de cruce A/B» (que es el que guarda y aplica)."""
+        if self._bloq:
+            return
+        if ps.value() != x:
+            ps.setValue(x)
+        sl, lv, _leer, fmt = self._filas[attr]
+        lv.setText(fmt(x))
+        self.graf.update()
+
+    def _aplicar_cruce(self, valores):
+        if self._bloq:
+            return
+        self.d.auto_set(valores)
+
+    def _tiempo_en_compases(self):
+        return cruce_auto.MAN_COMPASES >= 1
+
+    def _cambio_tiempo(self, x):
+        if self._bloq:
+            return
+        if self._tiempo_en_compases():
+            self.d.auto_set({"MAN_COMPASES": float(x)})
+        else:
+            try:
+                self.v.spin_mix.setValue(int(x))
+            except Exception:
+                pass
+        self.sincronizar()
+        self.graf.update()
+
+    def sincronizar(self):
+        """Deja todos los deslizadores con los valores de ahora (los cambió el dibujo, el panel principal, los valores por defecto o la estrategia)."""
+        self._bloq = True
+        try:
+            for k, (sl, lv, leer, fmt) in self._filas.items():
+                sl.setValue(int(round(leer()))); lv.setText(fmt(sl.value()))
+            sl, lv = self._tiempo
+            if self._tiempo_en_compases():
+                n = int(round(cruce_auto.MAN_COMPASES))
+                sl.setRange(2, 12); sl.setValue(max(2, min(12, n)))
+                lv.setText(f"{sl.value()} comp ≈ {sl.value() * VistaRitmo.BAR:.0f} s")
+                sl.setToolTip("Largo del cruce en compases (es el «Compases del Auto» de abajo). A 96 BPM, 8 compases son unos 20 s.")
+            else:
+                try:
+                    seg = int(self.v.spin_mix.value())
+                except Exception:
+                    seg = 20
+                sl.setRange(1, 30); sl.setValue(min(30, seg))
+                lv.setText(f"{sl.value()} s")
+                sl.setToolTip("Largo del cruce en segundos (es el deslizador «Duración» de la ventana principal).")
+        finally:
+            self._bloq = False
+        self.graf.update()
+
+
 class AjustesCruce(QDialog):
     def __init__(self, ventana):
         super().__init__(ventana)
@@ -489,10 +781,17 @@ class AjustesCruce(QDialog):
         info = QLabel("Acá se regulan los tiempos del cruce: arrastrá los puntos del dibujo con el mouse o usá el «Ajuste fino» de al lado (pausa, frenado). La línea celeste es el tema que suena "
                       "y la rosa el que entra; la pelotita recorre el cruce. Los cambios se guardan solos y valen desde la próxima mezcla.")
         info.setWordWrap(True); info.setStyleSheet("color:#9fe3c6;")
+        self._info = info
+        self._texto_info_viejo = info.text()
         lay.addWidget(info)
         self.vista = VistaRitmo(ventana, self)
-        fila_v = QHBoxLayout(); fila_v.setSpacing(8); fila_v.addWidget(self.vista, 1); fila_v.addWidget(self._crear_panel_fino(), 0)
-        lay.addLayout(fila_v)
+        self._cont_viejo = QWidget()                    # el dibujo de siempre + «Ajuste fino» (estrategias 0 y 1)
+        fila_v = QHBoxLayout(self._cont_viejo); fila_v.setContentsMargins(0, 0, 0, 0); fila_v.setSpacing(8)
+        fila_v.addWidget(self.vista, 1); fila_v.addWidget(self._crear_panel_fino(), 0)
+        lay.addWidget(self._cont_viejo)
+        self.panel_nuevo = PanelCruceAuto(ventana, self)  # el panel nuevo (estrategia 2 «como mi manual»)
+        self.vista_nueva = self.panel_nuevo.graf
+        lay.addWidget(self.panel_nuevo)
         cont = QWidget(); cl = QVBoxLayout(cont); cl.setContentsMargins(0, 0, 6, 0); cl.setSpacing(8)      # los grupos van en una zona con scroll: el formulario no pasa del alto de la pantalla
         self._sl = {}
         self._filas_w = {}                              # clave -> (etiqueta, deslizador, valor)
@@ -563,7 +862,7 @@ class AjustesCruce(QDialog):
         am = TEMA["ambar"]
         # (clave, texto, color, mínimo, máximo, valor desde cruce_auto, formato, cómo se guarda, ayuda)
         filas = (
-            ("pausa", "Pausa:", am, 0, 80, lambda: cruce_auto.PAUSA * 10, lambda x: f"{x / 10:.1f} s", lambda x: {"PAUSA": x / 10.0},
+            ("pausa", "Pausa:", am, 0, 100, lambda: cruce_auto.PAUSA * 10, lambda x: f"{x / 10:.1f} s", lambda x: {"PAUSA": x / 10.0},
              "Cuánto espera el crossfader en el 50 % (los dos temas suenan a la par). 0 = sin pausa."),
             ("zmin", "Frena desde:", am, 1, 25, lambda: cruce_auto.ZONA_MIN * 100, lambda x: f"{x} %", lambda x: {"ZONA_MIN": x / 100.0},
              "Cuánto antes del cruce empieza a frenar el crossfader (% del recorrido). Más = frena desde más lejos, más suave."),
@@ -603,10 +902,12 @@ class AjustesCruce(QDialog):
             sl.blockSignals(True); sl.setValue(int(round(getattr(cruce_auto, k) * div))); sl.blockSignals(False)
             val.setText(fmt.format(sl.value() / div))
         self._fino_sincronizar()
-        for nombre in ("vista", "vista_inc"):
+        for nombre in ("vista", "vista_nueva", "vista_inc"):
             v = getattr(self, nombre, None)
             if v is not None:
                 v.update()
+        if hasattr(self, "panel_nuevo"):
+            self.panel_nuevo.sincronizar()
         if "MAN_COMPASES" in valores or "ESTRATEGIA" in valores:
             try:
                 self.v.spin_mix.setEnabled(self.v._spin_mix_activo()); self.v.btn_mix.setText(self.v._texto_btn_mix())
@@ -628,6 +929,12 @@ class AjustesCruce(QDialog):
         for caja, claves in self._cajas:
             caja.setVisible((not claves) or any(SOLO_ESTRATEGIA.get(k, e) == e for k in claves))
         self._fino_sincronizar()
+        nuevo = (e == 2)                                  # solo «como mi manual» usa el panel nuevo
+        self.panel_nuevo.setVisible(nuevo); self._cont_viejo.setVisible(not nuevo)
+        self._info.setText("Así se arma el cruce Auto: la curva celeste es el tema que suena y la rosa el que entra. Arrastrá el punto naranja para decir dónde se detiene, "
+                           "el borde de la banda naranja para decir cuánto se queda (0 a 10 s), la marca roja para «Acelera hasta» y la amarilla para el final. "
+                           "Los deslizadores de abajo hacen lo mismo. Todo se guarda solo y vale desde la próxima mezcla." if nuevo else self._texto_info_viejo)
+        self.panel_nuevo.sincronizar()
 
     def _cambio(self, k, x, div, fmt, val):
         val.setText(fmt.format(x / div))
@@ -641,6 +948,7 @@ class AjustesCruce(QDialog):
                 pass
         guardar()
         self.vista.update()
+        self.panel_nuevo.sincronizar()
         if hasattr(self, "vista_inc"):
             self.vista_inc.update()
 
@@ -652,6 +960,7 @@ class AjustesCruce(QDialog):
         guardar()
         self._visibles()
         self.vista.update()
+        self.panel_nuevo.sincronizar()
         if hasattr(self, "vista_inc"):
             self._inc_sincronizar()
 

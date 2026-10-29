@@ -178,12 +178,14 @@ class MezclaMixin:
 
         if not self._mix_pausa_hecha:
             prev = self.crossfader.value()
-            cruzando = (prev < 50 <= value) or (prev > 50 >= value)
+            q = cruce_auto.pausa_pos()                       # dónde se queda la pausa (0.5 = en el 50 %; se mueve en ⚙ Ajustes)
+            vp = 100.0 * q if self.mix_to > self.mix_from else 100.0 * (1.0 - q)       # (0.5 → 50 en los dos sentidos, como siempre)
+            cruzando = (prev < vp <= value) or (prev > vp >= value)
             if cruzando:
-                self.crossfader.setValue(50)
+                self.crossfader.setValue(int(round(vp)))
                 self._mix_pausa_hecha = True
                 self.mix_timer.stop()
-                self._set_status(f"⏸ Mezcla pausada {cruce_auto.PAUSA:g} s en el 50%…")
+                self._set_status(f"⏸ Mezcla pausada {cruce_auto.PAUSA:g} s en el {int(round(q * 100))}%…")
                 self.mix_pausa_timer.start(max(50, int(self._pausa_s() * 1000)))
                 return
 
