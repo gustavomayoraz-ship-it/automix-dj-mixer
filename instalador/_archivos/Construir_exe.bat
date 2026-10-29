@@ -11,7 +11,7 @@ if not defined PYX set PYX=python
 echo Usando: %PYX%
 %PYX% --version
 %PYX% -m pip install --upgrade pyinstaller || goto :error
-%PYX% -m PyInstaller --onefile --noconsole --clean --name AutoMix-Setup AutoMixInstalador.py || goto :error
+%PYX% -m PyInstaller --onefile --noconsole --noupx --clean --name AutoMix-Setup AutoMixInstalador.py || goto :error
 echo.
 echo Listo: %~dp0dist\AutoMix-Setup.exe
 pause
