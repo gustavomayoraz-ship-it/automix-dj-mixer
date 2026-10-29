@@ -76,7 +76,7 @@ GRUPOS = [
         ("BREAK_VENTANA", "Vigilar desde (% del tema antes de la marca)", 1, 40, 100, "{:.0%}",
          "Cuánto antes de la marca se empieza a buscar el break, en % de la duración del tema (así sirve para temas de 2 o de 4 minutos).\nEj.: marca en 60 % y 15 % → se busca entre el 45 % y el 60 %."),
         ("BREAK_NIVEL", "Qué tan bajo es un break", 30, 80, 100, "{:.0%}",
-         "Un compás cuenta como break si su energía es menor que este % de la energía normal del tema. Más bajo = solo huecos muy marcados; más alto = detecta también bajones suaves."),
+         "Hay break si lo que va a sonar (de la línea blanca a la amarilla) tiene menos energía que este % de lo que sonó en los últimos 10 s. Más bajo = solo huecos muy marcados; más alto = detecta también bajones suaves."),
         ("BREAK_SEG", "Duración mínima del break (segundos)", 5, 80, 10, "{:.1f} s",
          "El tramo desde la línea blanca (ahora) hasta la línea amarilla tiene que estar por debajo de las líneas rojas para valer como break. Más corto = reacciona a valles breves (más falsos disparos); más largo = solo breaks largos."),
     ]),

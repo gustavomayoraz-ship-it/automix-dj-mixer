@@ -232,7 +232,7 @@ class UnifiedTimeline(QGraphicsView):
                 compas = float(np.median(np.diff(db))) if len(db) > 2 else 240.0 / max(60.0, float(analysis.get("bpm") or 120.0))
             except Exception:
                 compas = 2.5
-            nv = cruce_auto.nivel_break(analysis)
+            nv = cruce_auto.nivel_break(analysis, anchor)
             if nv is not None:                               # dos líneas rojas, 2 compases, centradas en el playhead: por debajo de ellas un compás cuenta como «bajo»
                 dy = min(amp, (nv / maxv) * amp)
                 x0 = self.t_to_x(anchor - compas, W, anchor); x1 = self.t_to_x(anchor + compas, W, anchor)

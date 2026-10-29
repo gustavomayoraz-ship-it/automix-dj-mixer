@@ -109,10 +109,32 @@ def _energia_compases(an):
 _REF_BREAK = {}
 
 
-def nivel_break(an):
+BREAK_REC = 10.0          # segundos de lo que ya sonó (a la izquierda de la línea blanca) contra los que se compara lo que viene
+
+
+def _ref_reciente(an, pos):
+    """Energía media de los últimos BREAK_REC segundos ya sonados (hasta `pos`); si hay menos de 3 s de historia, la energía normal de todo el tema."""
+    wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
+    paso = float(an.get("duration") or 0) / max(1, len(wf))
+    if len(wf) < 10 or paso <= 0:
+        return None
+    b = int(max(0.0, pos) / paso)
+    a = int(max(0.0, pos - BREAK_REC) / paso)
+    if (b - a) * paso >= 3.0:
+        m = float(wf[a:b].mean())
+        if m > 1e-9:
+            return m
+    e = _energia_compases(an)
+    return None if e is None else e[3]
+
+
+def nivel_break(an, pos=None):
     """Nivel de la forma de onda (en las mismas unidades que `an["waveform"]`) por debajo del cual un compás cuenta como bajo para el detector
-    de breaks: BREAK_NIVEL × la energía normal del tema. None si no se puede calcular. Sirve para dibujar la línea en el timeline."""
+    de breaks: BREAK_NIVEL × la energía de lo que acaba de sonar (si se pasa `pos`) o la normal del tema. None si no se puede calcular. Sirve para dibujar la línea en el timeline."""
     try:
+        if pos is not None:
+            r = _ref_reciente(an, pos)
+            return None if r is None else BREAK_NIVEL * r
         c = _REF_BREAK.get(id(an))
         if c is None or c[0] is not an:
             e = _energia_compases(an)
@@ -132,7 +154,9 @@ def break_adelante(an, pos, compas):
         e = _energia_compases(an)
         if e is None:
             return False
-        ref = e[3]
+        ref = _ref_reciente(an, pos)                      # lo que acaba de sonar (los últimos BREAK_REC s), no el promedio de todo el tema
+        if ref is None:
+            return False
         wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
         paso = float(an.get("duration") or 0) / max(1, len(wf))
         if paso <= 0:
