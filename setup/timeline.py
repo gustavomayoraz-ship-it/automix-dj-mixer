@@ -4,6 +4,7 @@ import numpy as np
 from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView
 from PySide6.QtCore import QPointF, Qt
+from setup import cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST, fmt_time
 from setup.tema import TEMA
 
@@ -224,6 +225,26 @@ class UnifiedTimeline(QGraphicsView):
                 item.setBrush(QBrush(fill))
             item.setPen(QPen(fill.lighter(125), 0.6))
             self.scene_.addItem(item)
+
+        if cruce_auto.BREAK_ACTIVO >= 0.5:                 # ayudas del detector de breaks (⚙ Mezclar en un break): se ven en cada canal
+            db = analysis.get("downbeats_full") or analysis.get("downbeats") or []
+            try:                                             # duración de un compás de este tema (s)
+                compas = float(np.median(np.diff(db))) if len(db) > 2 else 240.0 / max(60.0, float(analysis.get("bpm") or 120.0))
+            except Exception:
+                compas = 2.5
+            nv = cruce_auto.nivel_break(analysis)
+            if nv is not None:                               # dos líneas rojas, 2 compases, centradas en el playhead: por debajo de ellas un compás cuenta como «bajo»
+                dy = min(amp, (nv / maxv) * amp)
+                x0 = self.t_to_x(anchor - compas, W, anchor); x1 = self.t_to_x(anchor + compas, W, anchor)
+                for yy in (center_y - dy, center_y + dy):
+                    ln = QGraphicsLineItem(x0, yy, x1, yy)
+                    ln.setPen(QPen(QColor(255, 59, 78, 235), 1.6))
+                    self.scene_.addItem(ln)
+            xl = self.t_to_x(anchor + float(cruce_auto.BREAK_SEG), W, anchor)     # línea amarilla: hasta dónde llega la duración mínima del break (hacia donde viene el tema)
+            for pen in (QPen(QColor(0, 0, 0, 200), 4.2), QPen(QColor(255, 235, 40), 2.2)):
+                ln = QGraphicsLineItem(xl, top, xl, bottom)
+                ln.setPen(pen)
+                self.scene_.addItem(ln)
 
         for b in analysis.get("beats", []):
             x = self.t_to_x(b + delta_preview, W, anchor)

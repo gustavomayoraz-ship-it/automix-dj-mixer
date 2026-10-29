@@ -401,6 +401,16 @@ class MezclaMixin:
     def _marca_cruzada(self, f):
         pass
 
+    def _break_tilde(self, on):
+        """Tilde del frente «Mezclar en break»: enciende/apaga BREAK_ACTIVO, lo guarda y refresca la barra y la línea de tiempo."""
+        from setup import ajustes_cruce
+        cruce_auto.aplicar({"BREAK_ACTIVO": 1.0 if on else 0.0})
+        ajustes_cruce.guardar()
+        d = getattr(self, "_dlg_ajc", None)
+        if d is not None and hasattr(d, "refrescar"):
+            d.refrescar()
+        self.barra_prog.update(); self.timeline.redraw()
+
     def _actualizar_lbl_marca(self):
         if not hasattr(self, "lbl_marca"):
             return
@@ -459,18 +469,11 @@ class MezclaMixin:
             if entra.audio is None or not entra.analysis:
                 return None
             an = prim.analysis
-            clave = (id(an), cruce_auto.BREAK_NIVEL, cruce_auto.BREAK_COMPASES)
-            c = getattr(prim, "_breaks_cache", None)
-            if c is None or c[0] != clave:
-                prim._breaks_cache = c = (clave, cruce_auto.detectar_breaks(an))
-            if not c[1]:
-                return None
             db = self._db_de(prim)
             compas = float(np.median(np.diff(db))) if len(db) > 2 else 2.0
             pos = prim.position_virtual_seconds()
-            for ini, fin in c[1]:
-                if ini - 0.05 <= pos < fin - compas:          # el break empezó (o está empezando) y todavía le queda al menos un compás
-                    return ini
+            if cruce_auto.break_adelante(an, pos, compas):      # desde la línea blanca hasta la amarilla, bajo las líneas rojas
+                return pos
         except Exception:
             import traceback; traceback.print_exc()
         return None

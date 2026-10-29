@@ -11,6 +11,7 @@ from setup.analisis import _cerrar_pool
 from setup.barra import BarraProgresoConMarca
 from setup.base import CONSOLA, log
 from setup.biblioteca import Biblioteca
+from setup import cruce_auto
 from setup.config import DEF_AGUDOS, DEF_GOLPE, DEF_MARCA, DEF_MB_INT, DEF_MB_LIM, DEF_MB_VEL, DEF_MEDIOS, DEF_VOLUMEN, DEF_ZOOM, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, DEF_FIN_A, DEF_GAMMA_A, guardar_config, leer_config
 from setup.danados import HistorialDanados
 from setup.deck import Deck
@@ -379,6 +380,12 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.lbl_marca.setStyleSheet(f"color:{TEMA['suave']}; font-size:11px;")
         self._actualizar_lbl_marca()
         bl.addWidget(self.lbl_marca)
+        self.chk_break = QCheckBox("🌫 Mezclar\nen break")                 # atajo al ajuste «Detectar breaks» (⚙): se enciende/apaga sin abrir los ajustes
+        self.chk_break.setToolTip("Si el tema que suena entra en un break (energía baja) antes de la marca, se mezcla ahí sin esperar a la marca.\nEs el mismo ajuste de ⚙ → Break; los detalles (cuánto, qué tan bajo, desde dónde) se afinan allá.")
+        self.chk_break.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.chk_break.setChecked(cruce_auto.BREAK_ACTIVO >= 0.5)
+        self.chk_break.toggled.connect(self._break_tilde)
+        bl.addWidget(self.chk_break)
         self._col_central.insertWidget(1, barra_box)        # el Auto-enganche va justo debajo de los decks y las tarjetas (en el hueco de la columna central), al lado del panel de cruce
 
         zoom_row = QHBoxLayout()

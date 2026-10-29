@@ -77,8 +77,8 @@ GRUPOS = [
          "Cuánto antes de la marca se empieza a buscar el break, en % de la duración del tema (así sirve para temas de 2 o de 4 minutos).\nEj.: marca en 60 % y 15 % → se busca entre el 45 % y el 60 %."),
         ("BREAK_NIVEL", "Qué tan bajo es un break", 30, 80, 100, "{:.0%}",
          "Un compás cuenta como break si su energía es menor que este % de la energía normal del tema. Más bajo = solo huecos muy marcados; más alto = detecta también bajones suaves."),
-        ("BREAK_COMPASES", "Duración mínima del break (compases)", 1, 8, 1, "{:.0f}",
-         "El bajón tiene que durar al menos tantos compases seguidos para valer como break."),
+        ("BREAK_SEG", "Duración mínima del break (segundos)", 5, 80, 10, "{:.1f} s",
+         "El tramo desde la línea blanca (ahora) hasta la línea amarilla tiene que estar por debajo de las líneas rojas para valer como break. Más corto = reacciona a valles breves (más falsos disparos); más largo = solo breaks largos."),
     ]),
 ]
 
@@ -1031,10 +1031,25 @@ class AjustesCruce(QDialog):
             self.vista_inc.update()
         self._actualizar_barra()
 
+    def refrescar(self):
+        """El tilde «Mezclar en break» del frente cambió BREAK_ACTIVO: deja la casilla de este diálogo igual."""
+        try:
+            sl, val, div, fmt = self._sl["BREAK_ACTIVO"]
+            sl.blockSignals(True); sl.setValue(int(round(cruce_auto.BREAK_ACTIVO * div))); sl.blockSignals(False)
+            self._visibles()
+        except (KeyError, AttributeError):
+            pass
+
     def _actualizar_barra(self):
-        """Repinta la barra del auto-enganche (la línea de trazos de «Vigilar desde» depende de estos ajustes)."""
+        """Repinta la barra del auto-enganche y el timeline (la línea de trazos de «Vigilar desde» y las líneas rojas de «Qué tan bajo es un break» dependen de estos ajustes)."""
+        try:
+            chk = self.v.chk_break                          # el tilde del frente sigue a este ajuste
+            chk.blockSignals(True); chk.setChecked(cruce_auto.BREAK_ACTIVO >= 0.5); chk.blockSignals(False)
+        except AttributeError:
+            pass
         try:
             self.v.barra_prog.update()
+            self.v.timeline.redraw()                       # las dos líneas rojas de «Qué tan bajo es un break» también dependen de estos ajustes
         except AttributeError:
             pass
 

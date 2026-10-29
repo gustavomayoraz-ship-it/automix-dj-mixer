@@ -69,8 +69,8 @@ INC_BPM = 0.22           # diferencia máxima de BPM (fracción: 0.22 = 22 %) pa
 BREAK_ACTIVO = 0.0        # 1 = antes de la marca roja se vigila un «break» del tema que suena (un tramo donde baja la energía) y se mezcla ahí · 0 = solo la marca
 BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (fracción de la duración del tema: 0.15 = 15 %)
 BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
-BREAK_COMPASES = 2.0      # el break tiene que durar al menos tantos compases seguidos
-DEFECTOS = {k: v for k, v in dict(NIVEL_LUFS=NIVEL_LUFS, AUTO_ECO=AUTO_ECO, AUTO_TONO=AUTO_TONO, AUTO_NIVELA=AUTO_NIVELA, AUTO_TEMPO_OCULTO=AUTO_TEMPO_OCULTO, AUTO_ENTRADA_ESTRUCTURA=AUTO_ENTRADA_ESTRUCTURA, AUTO_APRENDE=AUTO_APRENDE, AUTO_OPTIMIZA=AUTO_OPTIMIZA, AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
+BREAK_SEG = 2.0           # el break tiene que durar al menos tantos segundos (distancia de la línea amarilla a la blanca)
+DEFECTOS = {k: v for k, v in dict(NIVEL_LUFS=NIVEL_LUFS, AUTO_ECO=AUTO_ECO, AUTO_TONO=AUTO_TONO, AUTO_NIVELA=AUTO_NIVELA, AUTO_TEMPO_OCULTO=AUTO_TEMPO_OCULTO, AUTO_ENTRADA_ESTRUCTURA=AUTO_ENTRADA_ESTRUCTURA, AUTO_APRENDE=AUTO_APRENDE, AUTO_OPTIMIZA=AUTO_OPTIMIZA, AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_SEG=BREAK_SEG, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
             ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
@@ -87,26 +87,75 @@ def aplicar(valores):
         g["MAX_DUR"] = g["MIN_DUR"]
 
 
+def _energia_compases(an):
+    """Energía de cada compás del tema (promedio de su forma de onda) y la energía «normal» de referencia: (r, ok, db, ref). None si no hay grilla."""
+    wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
+    dur = float(an.get("duration") or 0)
+    db = np.asarray(an.get("downbeats_full") or an.get("downbeats") or [], dtype=np.float64)
+    if len(wf) < 200 or dur <= 0 or len(db) < 16:
+        return None
+    paso = dur / len(wf)
+    idx = np.clip((db / paso).astype(int), 0, len(wf))
+    r = np.array([wf[a:b].mean() if b > a else np.nan for a, b in zip(idx[:-1], idx[1:])])     # energía de cada compás
+    ok = ~np.isnan(r)
+    if int(ok.sum()) < 8:
+        return None
+    ref = float(np.percentile(r[ok], 70))                  # la energía "normal" del tema (el tramo pleno, no el promedio con los huecos)
+    if ref <= 1e-9:
+        return None
+    return r, ok, db, ref
+
+
+_REF_BREAK = {}
+
+
+def nivel_break(an):
+    """Nivel de la forma de onda (en las mismas unidades que `an["waveform"]`) por debajo del cual un compás cuenta como bajo para el detector
+    de breaks: BREAK_NIVEL × la energía normal del tema. None si no se puede calcular. Sirve para dibujar la línea en el timeline."""
+    try:
+        c = _REF_BREAK.get(id(an))
+        if c is None or c[0] is not an:
+            e = _energia_compases(an)
+            c = (an, None if e is None else e[3])
+            if len(_REF_BREAK) > 8:
+                _REF_BREAK.clear()
+            _REF_BREAK[id(an)] = c
+        return None if c[1] is None else BREAK_NIVEL * c[1]
+    except Exception:
+        return None
+
+
+def break_adelante(an, pos, compas):
+    """¿El tramo que viene desde `pos` (segundos) hasta `pos + BREAK_SEG` segundos está por debajo de la línea roja?
+    Es lo mismo que se ve en la línea de tiempo (de la línea blanca a la amarilla). Promedia la forma de onda de ese tramo, sin alinear a compases."""
+    try:
+        e = _energia_compases(an)
+        if e is None:
+            return False
+        ref = e[3]
+        wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
+        paso = float(an.get("duration") or 0) / max(1, len(wf))
+        if paso <= 0:
+            return False
+        a = int(max(0.0, pos) / paso)
+        b = int((pos + max(0.5, float(BREAK_SEG))) / paso)
+        if b > len(wf) or b - a < 3:
+            return False                                   # el tema se acaba antes de completar la duración mínima
+        return float(wf[a:b].mean()) < BREAK_NIVEL * ref
+    except Exception:
+        return False
+
+
 def detectar_breaks(an):
     """Breaks de un tema: lista de (segundo de inicio, segundo de fin) de los tramos en que la energía cae (varios compases seguidos por
     debajo de BREAK_NIVEL × la energía normal del tema). Usa la forma de onda del análisis y la grilla de compases; [] si no hay grilla."""
     try:
-        wf = np.asarray(an.get("waveform") or [], dtype=np.float64)
-        dur = float(an.get("duration") or 0)
-        db = np.asarray(an.get("downbeats_full") or an.get("downbeats") or [], dtype=np.float64)
-        if len(wf) < 200 or dur <= 0 or len(db) < 16:
+        e = _energia_compases(an)
+        if e is None:
             return []
-        paso = dur / len(wf)
-        idx = np.clip((db / paso).astype(int), 0, len(wf))
-        r = np.array([wf[a:b].mean() if b > a else np.nan for a, b in zip(idx[:-1], idx[1:])])     # energía de cada compás
-        ok = ~np.isnan(r)
-        if int(ok.sum()) < 8:
-            return []
-        ref = float(np.percentile(r[ok], 70))                  # la energía "normal" del tema (el tramo pleno, no el promedio con los huecos)
-        if ref <= 1e-9:
-            return []
+        r, ok, db, ref = e
         bajo = ok & (r < BREAK_NIVEL * ref)
-        n_min = max(1, int(round(BREAK_COMPASES)))
+        d = np.diff(db); n_min = max(1, int(round(BREAK_SEG / max(0.1, float(np.median(d))))) if len(d) else 1)
         out, i, n = [], 0, len(bajo)
         while i < n:
             if bajo[i]:
