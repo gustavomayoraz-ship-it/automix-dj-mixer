@@ -2,11 +2,11 @@
 Lo que se mueve acá se aplica enseguida (en la próxima mezcla) y queda guardado."""
 import math
 import time
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QScrollArea, QSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider,
                                QVBoxLayout, QWidget)
-from setup import cruce_auto
+from setup import aprendizaje, cruce_auto
 from setup.config import (DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, guardar_config, leer_config,
                           perfil_cruce_ab, perfil_cruce_bandas)
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
@@ -16,7 +16,7 @@ CLAVE = "ajustes_cruce"
 
 # (clave en cruce_auto, texto, mínimo, máximo, divisor, formato, ayuda)
 # Ajustes que solo tienen efecto con ciertas estrategias (el resto valen siempre, también en Manual): se esconden cuando no sirven
-SOLO_ESTRATEGIA = {"MAN_COMPASES": 2, "ADAPTA_DUR": 2, "PRO_COMPASES": 1,
+SOLO_ESTRATEGIA = {"MAN_COMPASES": 2, "AUTO_OPTIMIZA": 2, "AUTO_APRENDE": 2, "AUTO_ENTRADA_ESTRUCTURA": 2, "ADAPTA_DUR": 2, "PRO_COMPASES": 1,
                    "MIN_DUR": 0, "DUR_IDEAL": 0, "MAX_DUR": 0, "ENT_MIN": 0, "ENT_MAX": 0, "RB_MIN": 0}
 
 
@@ -31,6 +31,33 @@ GRUPOS = [
          "2 = el Auto mezcla igual que tu cruce MANUAL: tu forma de A/B, tu duración (el deslizador «Duración»), la pausa del 50 % y el\nfrenado de abajo; solo redondea la duración a compases enteros.\n1 = Pro: mezcla larga en frase (B entra sin graves, el bajo cambia a la mitad, A se va después), sin pausa ni frenado.\n0 = la clásica (la diseña el programa para cada par)."),
         ("MAN_COMPASES", "Compases del Auto «como mi manual» (0 = segundos)", 0, 12, 1, "{:.0f}",
          "Largo del fundido de la estrategia 2 en compases: dura lo mismo en compases a cualquier tempo (a 96 BPM, 8 compases son unos 20 s;\na 136 BPM, unos 14 s). 0 = usar los segundos del deslizador «Duración» (redondeados a compases)."),
+        ("NIVEL_LUFS", "Parejar el volumen de cada tema con su sonoridad real (tipo LUFS)", 0, 1, 1, "{:.0f}",
+         "1 = al cargar un tema se mide su sonoridad con el filtro K de la norma BS.1770 y compuertas (ignora silencios, intros calladas y tramos muy bajos) y se le\n"
+         "ajusta la ganancia para que todos suenen igual de fuertes. 0 = el método de antes (RMS promedio, que sube de más a los temas con intro callada).\n"
+         "Vale para los temas que cargues desde ahora (los que ya están cargados siguen como estaban)."),
+        ("AUTO_NIVELA", "Al cruzar, el tema que entra arranca al mismo nivel que el que sale", 0, 1, 1, "{:.0f}",
+         "1 = en cada cruce del Auto se compara el nivel de los dos temas en el tramo donde suenan juntos (según su energía) y el que entra arranca con hasta ±3 dB\n"
+         "de corrección para igualarlo; esa corrección se va soltando hasta 0 dB cuando termina el cruce. Evita el escalón de volumen al entrar. 0 = no corrige."),
+        ("AUTO_ECO", "Temas que no combinan: el que sale se cierra en filtro y se disuelve en un eco", 0, 1, 1, "{:.0f}",
+         "1 = cuando los dos temas no combinan (BPM muy distintos o tonalidades que chocan) el que sale va perdiendo agudos a medida que baja su volumen y deja un eco al compás\n"
+         "que se apaga solo, así el que entra aparece sobre esa cola y el cambio se disimula. Con temas que combinan no se usa. 0 = sin efecto."),
+        ("AUTO_TONO", "Si las tonalidades chocan, subir o bajar un semitono al tema que entra", 0, 1, 1, "{:.0f}",
+         "1 = si los dos temas están en tonalidades que chocan (según la rueda de Camelot) y moviendo UN semitono al que entra quedan compatibles, el Auto lo hace: el tema entra con otro tono\n"
+         "pero el mismo tempo (puede sonar apenas distinto al original, como cuando un DJ sube o baja el tono). Se queda así hasta que ese deck cambia de tema. Solo si la tonalidad detectada es confiable. 0 = nunca toca el tono."),
+        ("AUTO_TEMPO_OCULTO", "El cambio de tempo entre los dos temas se hace donde suenan juntos", 0, 1, 1, "{:.0f}",
+         "1 = en el cruce del Auto, los dos temas pasan de un tempo al otro solo en el tramo donde se oyen los dos (empieza suave cuando entra el nuevo y termina suave cuando se va el viejo),\n"
+         "así el cambio queda tapado por la mezcla y no se nota en un tema solo. 0 = como antes (cambia de forma pareja con el crossfader, también cuando suena uno solo)."),
+        ("AUTO_ENTRADA_ESTRUCTURA", "El tema que entra salta su intro larga (su 1.ª sección fuerte cae al final del cruce)", 0, 1, 1, "{:.0f}",
+         "1 = el Auto mira la estructura del tema que entra (en frases de 8 compases): si tiene una intro larga, arranca más adentro para que su primera sección fuerte\n"
+         "(cuando empieza la voz o sube la energía) caiga justo cuando termina el cruce, en vez de que la voz te pise a la mitad. Si el tema ya arranca fuerte, o la\n"
+         "intro es más corta que el cruce, arranca de siempre. 0 = siempre desde su primer compás. Vale en los cruces que arranca el Auto (no cuando posicionás vos el tema)."),
+        ("AUTO_APRENDE", "El Auto aprende de tus 👍 / 👎 (botones de la mezcla)", 0, 1, 1, "{:.0f}",
+         "1 = después de cada mezcla del Auto podés votar 👍 / 👎 (si fue 👎, por qué). Con pares de temas parecidos (armonía, tempo, voces) el Auto corre la\n"
+         "duración hasta ±3 compases hacia lo que te gustó. 0 = ignora lo aprendido (los votos se siguen guardando). Para borrarlo: botón «Olvidar lo aprendido»."),
+        ("AUTO_OPTIMIZA", "Optimizar cada cruce del Auto (prueba variantes y elige la mejor)", 0, 1, 1, "{:.0f}",
+         "1 = el Auto diseña varias versiones de cada cruce (±2 compases de duración y distintas líneas de compás para el cambio de bajo), las puntúa\n"
+         "(voces de los dos juntas, saltos de volumen, bajo de B que todavía no suena) y ejecuta la que menos molesta. Se queda cerca de tu plantilla.\n"
+         "0 = hace exactamente lo que está en el panel de arriba. El motivo de cada elección queda en el registro («optimizado…»)."),
         ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
          "Largo de la mezcla Pro en compases. Se usa el más cercano de 4, 8, 16 o 32 que quepa en lo que le queda al tema que sale.\n16 compases a 96 BPM son unos 40 s · 8 compases, unos 20 s."),
     ]),
@@ -77,6 +104,27 @@ def guardar():
     try:
         guardar_config(**{CLAVE: dict(cruce_auto.valores(), _ver=2)})
     except Exception:
+        pass
+
+
+class _Tilde(QCheckBox):
+    """Casilla para los ajustes de 0/1: se maneja igual que un deslizador (value / setValue / valueChanged) pero se ve como un tilde."""
+    valueChanged = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.toggled.connect(lambda on: self.valueChanged.emit(1 if on else 0))
+
+    def setValue(self, v):
+        self.setChecked(int(v) >= 1)
+
+    def value(self):
+        return 1 if self.isChecked() else 0
+
+
+class _ValorVacio(QLabel):
+    """Etiqueta de valor de las filas con tilde: no muestra nada (el tilde ya lo dice)."""
+    def setText(self, _t):
         pass
 
 
@@ -838,9 +886,13 @@ class AjustesCruce(QDialog):
                 r0 = 2
             for r, (k, texto, lo, hi, div, fmt, tip) in enumerate(filas, r0):
                 lbl = QLabel(texto); lbl.setToolTip(tip)
-                sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setToolTip(tip)
+                if (lo, hi) == (0, 1):                          # sí / no: un tilde, no un deslizador
+                    sl = _Tilde(); sl.setToolTip(tip)
+                    val = _ValorVacio(); val.setMinimumWidth(56)
+                else:
+                    sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setToolTip(tip)
+                    val = QLabel(); val.setMinimumWidth(56); val.setAlignment(Qt.AlignmentFlag.AlignRight)
                 sl.setValue(int(round(getattr(cruce_auto, k) * div)))
-                val = QLabel(); val.setMinimumWidth(56); val.setAlignment(Qt.AlignmentFlag.AlignRight)
                 sl.valueChanged.connect(lambda x, k=k, div=div, fmt=fmt, val=val: self._cambio(k, x, div, fmt, val))
                 val.setText(fmt.format(sl.value() / div))
                 gl.addWidget(lbl, r, 0); gl.addWidget(sl, r, 1); gl.addWidget(val, r, 2)
@@ -855,10 +907,13 @@ class AjustesCruce(QDialog):
         lay.addWidget(sc, 1)
         fila = QHBoxLayout()
         b_def = QPushButton("Valores por defecto"); b_def.clicked.connect(self._defecto)
+        self.b_olv = QPushButton("🧠 Olvidar lo aprendido")
+        self.b_olv.setToolTip("Borra los 👍 / 👎 guardados: el Auto vuelve a hacer exactamente lo que dice el panel.")
+        self.b_olv.clicked.connect(self._olvidar)
         b_cer = QPushButton("Cerrar"); b_cer.clicked.connect(self.close)
-        for b in (b_def, b_cer):
+        for b in (b_def, self.b_olv, b_cer):
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        fila.addWidget(b_def); fila.addStretch(1); fila.addWidget(b_cer)
+        fila.addWidget(b_def); fila.addWidget(self.b_olv); fila.addStretch(1); fila.addWidget(b_cer)
         lay.addLayout(fila)
         self._visibles()
         try:
@@ -974,6 +1029,11 @@ class AjustesCruce(QDialog):
         self.panel_nuevo.sincronizar()
         if hasattr(self, "vista_inc"):
             self.vista_inc.update()
+
+    def _olvidar(self):
+        aprendizaje.olvidar()
+        self.b_olv.setText("🧠 Olvidado ✔")
+        QTimer.singleShot(1500, lambda: self.b_olv.setText("🧠 Olvidar lo aprendido"))
 
     def _defecto(self):
         for k, (sl, val, div, fmt) in self._sl.items():

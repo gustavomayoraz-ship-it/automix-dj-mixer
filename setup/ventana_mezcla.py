@@ -12,7 +12,7 @@ from setup.ajustes import fmt_time
 from setup.analisis import compat_armonica
 from setup.base import _log_diferido, log
 from setup.config import guardar_config
-from setup import cruce_auto
+from setup import cruce_auto, nivel, tono
 
 
 class MezclaMixin:
@@ -106,6 +106,7 @@ class MezclaMixin:
         sale_d = self.deck_a if entra is self.deck_b else self.deck_b
         self._plan = None
         if self.cruce_auto and self.cruce_ab and self.cruce_bandas and not simple:
+            self._tono_decidir(sale_d, entra)                     # antes de diseñar: el diseño ya cuenta con la tonalidad con que va a sonar el que entra
             try:
                 self._plan = self._disenar_cruce_auto(sale_d, entra)      # modo Auto: el cruce se diseña para ESTE par de temas
             except Exception:
@@ -116,6 +117,7 @@ class MezclaMixin:
             pl = self._plan
             self._ultimo_plan = pl
             duration_s = float(pl["dur"])
+            self._nivelar_entrada(sale_d, entra, duration_s + float(pl.get("pausa_s", 0.0)))
             log("cruce auto", f"{pl['nombre']} · {pl['razon']} · A baja de {pl['pa']:.0%} a {pl['fa']:.0%} · B entra desde {pl['pb']:.0%} "
                               f"(sube en {pl['rb']:.0%}) · bajo en {pl['ps']:.0%}")
         else:
@@ -139,6 +141,7 @@ class MezclaMixin:
             except Exception:
                 import traceback; traceback.print_exc()
                 self._pc_mix = None
+        self._eco_decidir(sale_d, simple)
         interval_ms = 50
         self._mix_dur = max(0.5, float(duration_s))      # la mezcla se mide con el RELOJ REAL (dura lo que marca el gráfico de ⚙, aunque el temporizador se atrase)
         self._mix_acum = 0.0
@@ -149,6 +152,94 @@ class MezclaMixin:
         self.mix_pausa_timer.stop()
         self.mix_timer.start(interval_ms)
         self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🤖 {self._plan['nombre']}" if self._plan else ""))
+
+    def _eco_decidir(self, sale_d, simple):
+        """Cruce de temas que no combinan (BPM muy distintos o tonalidades que chocan): arma el filtro + eco al compás en el que sale."""
+        try:
+            self.mixer.eco.soltar()
+            if cruce_auto.AUTO_ECO < 0.5:
+                return
+            choca = bool(getattr(self, "_inc_mix", False)) or bool(self._plan and self._plan.get("compat") == 0)
+            if not choca:
+                return
+            bpm = float(sale_d.original_bpm or 0.0) * max(1e-6, float(sale_d.rate_eff))
+            retardo = 0.75 * 60.0 / bpm if bpm > 30.0 else 0.4          # corchea con puntillo: cae "entre" los golpes y no los pisa
+            while retardo > 0.9:
+                retardo /= 2.0
+            while retardo < 0.2:
+                retardo *= 2.0
+            self.mixer.eco.armar("a" if sale_d is self.deck_a else "b", retardo)
+            log("eco", f"el Deck {sale_d.name} se va con filtro y eco ({retardo * 1000:.0f} ms, al compás) porque los dos temas no combinan")
+        except Exception:
+            traceback.print_exc()
+
+    def _tono_decidir(self, sale_d, entra):
+        """Si las tonalidades chocan y UN semitono arriba o abajo del que entra las vuelve compatibles, el que entra suena así (mismo tempo)."""
+        try:
+            if getattr(entra, "semitonos", 0):
+                return                                            # ya suena movido: no se vuelve a tocar
+            if cruce_auto.AUTO_TONO < 0.5 or entra.audio is None:
+                return
+            def clave_conf(d):
+                k = (d.analysis or {}).get("key") or {}
+                return k.get("camelot"), k.get("conf")
+            cs, fs = clave_conf(sale_d); ce, fe = clave_conf(entra)
+            cs = self._clave_de(sale_d); ce = ce or self._clave_de(entra)
+            if not cs or not ce:
+                return
+            for f in (fs, fe):                                    # tonalidad poco clara (los dos mejores candidatos casi empatan): no se arriesga
+                if f is not None and float(f) < tono.CONF_MIN:
+                    return
+            s, comp, nueva = tono.mejor_desplazamiento(cs, ce, 1)
+            if s == 0:
+                return
+            entra.set_semitonos(s)
+            log("tono", f"{cs} → {ce} chocan: el Deck {entra.name} entra {s:+d} semitono ({nueva}, {'misma clave' if comp == 2 else 'clave vecina'}) con el mismo tempo; sigue así mientras esté en el deck")
+        except Exception:
+            traceback.print_exc()
+
+    def _nivel_restaurar(self):
+        """Devuelve al tema que entró su ganancia normal (termina la corrección de nivel del cruce)."""
+        n = getattr(self, "_nivel", None)
+        self._nivel = None
+        if n and n["deck"].path == n["path"]:
+            n["deck"].auto_gain = n["base"]
+
+    def _nivelar_entrada(self, sale_d, entra, duration_s):
+        """Al empezar un cruce del Auto: el que entra arranca al mismo nivel que el que sale en el tramo donde suenan juntos (hasta ±3 dB),
+        y esa corrección se va soltando hasta 0 dB al terminar (ver `_nivel_paso`). Se mide con la curva de energía del análisis."""
+        self._nivel_restaurar()
+        if cruce_auto.AUTO_NIVELA < 0.5 or not self._plan:
+            return
+        try:
+            vent = max(4.0, min(12.0, float(duration_s) / 3.0))
+            def local(d):
+                an = d.analysis or {}
+                wf = an.get("waveform") or []
+                if not wf:
+                    return None
+                dt = float(an.get("duration", 0.0)) / len(wf)
+                return nivel.nivel_local(wf, dt, d.position_virtual_seconds(), max(1e-6, d.rate_eff), float(d.auto_gain), vent)
+            db = nivel.trim_entrada_db(local(sale_d), local(entra))
+            if abs(db) < 0.3:
+                return
+            self._nivel = {"deck": entra, "path": entra.path, "base": float(entra.auto_gain), "db": db}
+            entra.auto_gain = self._nivel["base"] * 10.0 ** (db / 20.0)
+            log("nivel", f"Deck {entra.name} entra con {db:+.1f} dB para igualar el nivel del que sale; vuelve a 0 dB al terminar el cruce")
+        except Exception:
+            traceback.print_exc()
+            self._nivel = None
+
+    def _nivel_paso(self, frac):
+        """Suelta de a poco la corrección de nivel del que entró (frac = avance del cruce, 0..1)."""
+        n = getattr(self, "_nivel", None)
+        if not n:
+            return
+        d = n["deck"]
+        if d.path != n["path"]:                      # se cargó otro tema en ese deck: no se toca nada
+            self._nivel = None
+            return
+        d.auto_gain = n["base"] * 10.0 ** (n["db"] * (1.0 - min(1.0, max(0.0, frac))) / 20.0)
 
     def _es_auto2(self):
         """¿La mezcla en curso es del Auto «como mi manual»? (usa su propia pausa y su propio ritmo, separados del manual)"""
@@ -165,6 +256,8 @@ class MezclaMixin:
         if self._mix_acum >= self._mix_dur:
             self.mix_steps_done = self.mix_steps_total
             self.mix_timer.stop()
+            self._nivel_restaurar()
+            self.mixer.eco.soltar()                         # el eco ya no recibe más, pero su cola termina de sonar
             self.crossfader.setValue(self.mix_to)
             self._plan = None
             self._inc_mix = False
@@ -173,6 +266,7 @@ class MezclaMixin:
             return
 
         frac = min(1.0, self._mix_acum / self._mix_dur)
+        self._nivel_paso(frac)
         self.mix_steps_done = int(frac * self.mix_steps_total)
         if getattr(self, "_inc_mix", False):               # temas incompatibles: el nuevo arranca (a su tempo natural) cuando al que sale le queda INC_ENTRA
             en = getattr(self, "_inc_entra", None)

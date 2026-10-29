@@ -627,6 +627,8 @@ class BibliotecaMixin:
             return
         log("programa", "lista vacía: se descargan los dos decks")
         self.mix_timer.stop(); self.mix_pausa_timer.stop()
+        try: self._nivel_restaurar()
+        except Exception: pass
         self._plan = None
         self._frase_armada = False
         self._mix_esperando = False

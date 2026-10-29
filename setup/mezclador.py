@@ -7,6 +7,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from setup.auriculares import Auriculares
+from setup.eco import EcoSalida
 from setup.efectos import EfectoSalida
 from setup.dsp import AutoMejora, CruceLR4, LimitadorSuave, RealceGrave, TonoAgudos, TonoMedios
 
@@ -144,7 +145,7 @@ class GlobalMixer:
 
     # Errores posibles del callback (se muestran en la consola desde el thread de la UI)
     ERR = {1: "auriculares", 2: "mezclar", 3: "multibanda", 4: "medios", 5: "agudos",
-           6: "golpe 43 Hz", 7: "efectos", 8: "limitador", 9: "recorte"}
+           6: "golpe 43 Hz", 7: "efectos", 8: "limitador", 9: "recorte", 10: "eco de salida"}
 
     def __init__(self, deck_a, deck_b, sr=44100, blocksize=1024):
         self.deck_a = deck_a
@@ -175,6 +176,7 @@ class GlobalMixer:
         self.grabador = GrabadorMezcla(sr, blocksize)
         self.aur = Auriculares(sr, blocksize)      # salida de auriculares (PFL)
         self.fx = EfectoSalida(sr)                 # efectos de sonido (sirena, bocina...) que se suman a la mezcla
+        self.eco = EcoSalida(sr, blocksize)        # filtro + eco con que se va el tema que sale cuando los dos no combinan (lo arma la ventana)
         self.cortes_audio = 0              # veces que la placa pidió audio y no llegó a tiempo
         self.cb_max_ms = 0.0               # lo más que tardó un bloque desde el último aviso
         self._cb_n = 0                     # bloques servidos (el vigilante mira que siga avanzando)
@@ -308,11 +310,20 @@ class GlobalMixer:
             p_b = b * self._rampa_2d(g["b_hi"], tg["b_hi"], frames)
             g["a_lo"], g["b_lo"] = tg["a_hi"], tg["b_hi"]
         g["a_hi"], g["b_hi"] = tg["a_hi"], tg["b_hi"]
+        cola = None
+        if self.eco.activo:
+            try:
+                p_a, p_b, cola = self.eco.aplicar(p_a, p_b, da.volume, db.volume, frames)
+            except Exception:
+                self.eco.activo = False
+                if self._err_flag == 0: self._err_flag = 10
         mix = p_a + p_b
         try:
             mix = self._compensar(p_a, p_b, mix, frames)
         except Exception:
             self._comp = 1.0
+        if cola is not None:
+            mix = mix + cola
         return mix
 
     def start(self, device=None):

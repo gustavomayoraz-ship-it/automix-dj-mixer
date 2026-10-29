@@ -1,9 +1,9 @@
 """AutoMix — gráfico y panel de la forma de cruce."""
 import math
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
-from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
-from setup import cruce_auto
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
+from setup import aprendizaje, cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST
 from setup.config import DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_ab, perfil_cruce_bandas
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
@@ -163,6 +163,15 @@ class PanelCruce(QFrame):
         self.btn_modo.toggled.connect(self._modo_cambio)
         lay.addWidget(self.btn_modo)
         self.lbl_dur = QLabel(); self.lbl_dur.hide()
+        fila_voto = QHBoxLayout(); fila_voto.setSpacing(6)
+        self.btn_voto_ok = QPushButton("👍 Me gustó"); self.btn_voto_mal = QPushButton("👎 No me gustó")
+        self.btn_voto_ok.setToolTip("Valora el último cruce del Auto «como mi manual». El Auto aprende: con pares de temas parecidos corre la duración hacia lo que te gustó.")
+        self.btn_voto_mal.setToolTip("El último cruce del Auto no te gustó: elegí por qué (muy corto, muy largo, voces…) y el Auto lo tiene en cuenta la próxima vez.")
+        self.btn_voto_ok.setStyleSheet(_qss_boton("#4be08a", "#17894a", "#c5f7da", "#032413", "#7af0b0", "#22a85c"))
+        self.btn_voto_mal.setStyleSheet(_qss_boton("#ff8a95", "#c9283b", "#ffc7cd", "#ffffff", "#ffa1aa", "#dc3a4d"))
+        self.btn_voto_ok.clicked.connect(lambda: self._votar(+1)); self.btn_voto_mal.clicked.connect(lambda: self._votar(-1))
+        fila_voto.addWidget(self.btn_voto_ok); fila_voto.addWidget(self.btn_voto_mal)
+        lay.addLayout(fila_voto)
         self.btn_copiar = QPushButton("📋 Copiar el último cruce Auto")
         self.btn_copiar.setToolTip("Pasa al modo manual los valores del último cruce que diseñó el Auto (A, B, subida, fin de A, forma, bajo y duración),\npara que los puedas retocar o dejarlos fijos para todos los temas.")
         self.btn_copiar.setStyleSheet(_qss_boton("#b794ff", "#6a3fd4", "#e0d2ff", "#ffffff", "#c9adff", "#7d52e6"))     # violeta
@@ -186,6 +195,29 @@ class PanelCruce(QFrame):
         self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
         self.lv_rb.setText(f"{self.sl_rb.value()}%"); self.lv_fa.setText(f"{self.sl_fa.value()}%")
         self.lv_g.setText(f"{self.sl_g.value() / 10.0:.1f}")
+
+    def _votar(self, voto):
+        """👍 / 👎 al último cruce que hizo el Auto «como mi manual»: lo guarda y el Auto aprende para los pares de temas parecidos."""
+        ul = getattr(self.v, "_ultimo_plan", None)
+        if not ul or ul.get("estrategia") != "manual":
+            self.v._set_status("🗳 Todavía no hay un cruce del Auto «como mi manual» para valorar: dejá que haga una mezcla primero")
+            return
+        if ul.get("_votado"):
+            self.v._set_status("🗳 Ya valoraste ese cruce")
+            return
+        motivo = None
+        if voto < 0:
+            menu = QMenu(self)
+            acc = {menu.addAction(txt): k for k, txt in aprendizaje.MOTIVOS.items()}
+            elegido = menu.exec(self.btn_voto_mal.mapToGlobal(QPoint(0, self.btn_voto_mal.height())))
+            if elegido is None:
+                return
+            motivo = acc[elegido]
+        if aprendizaje.registrar(ul, voto, motivo):
+            ul["_votado"] = True
+            self.v._set_status(("👍" if voto > 0 else "👎") + f" Anotado: el Auto lo tiene en cuenta · {aprendizaje.resumen()}")
+        else:
+            self.v._set_status("🗳 No se pudo guardar el voto")
 
     def _copiar_auto(self):
         ul = getattr(self.v, "_ultimo_plan", None)

@@ -13,6 +13,7 @@ del par de temas (dónde hay voz o melodía, dónde hay bombo y bajo, los compas
 El resultado es un dict para `perfil_cruce_bandas`. Este módulo solo calcula (no toca la interfaz ni el audio)."""
 import math
 import numpy as np
+from setup import aprendizaje
 from setup.config import (DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_bandas, perfil_cruce_ab)
 
 UMBRAL_VOZ = 0.45        # desde este valor (0..1) se considera que hay voz/melodía
@@ -44,6 +45,15 @@ AUTO_G = DEF_GAMMA_A      # forma de A
 AUTO_PS = DEF_PUNTO_S     # bajo (cambia)
 AUTO_PAUSA = 3.0          # pausa del Auto (s)
 AUTO_PAUSA_POS = 0.5      # dónde se queda la pausa del Auto (posición del crossfader)
+MAX_SESGO_APRENDE = aprendizaje.MAX_SESGO
+NIVEL_LUFS = 1.0                # 1 = el volumen de cada tema se parea con su sonoridad real (medida tipo LUFS, ignora silencios e intros calladas) · 0 = como antes (RMS promedio). Vale para los temas que se carguen desde ahora
+AUTO_TEMPO_OCULTO = 1.0         # 1 = en el cruce del Auto, el cambio de tempo entre los dos temas se hace solo mientras suenan juntos (empieza suave cuando el nuevo entra y termina suave cuando el viejo se va), no cuando uno de los dos está solo · 0 = como antes (lineal con el crossfader)
+AUTO_ECO = 1.0                  # 1 = al cruzar temas que no combinan (BPM muy distintos o tonalidades que chocan) el que sale se va cerrando en un filtro y se disuelve en un eco al compás · 0 = sin efecto
+AUTO_TONO = 1.0                 # 1 = si las tonalidades de los dos temas chocan y subiendo o bajando UN semitono al que entra pasan a ser compatibles, el que entra suena así (mismo tempo, otro tono) mientras dure en ese deck · 0 = nunca toca el tono
+AUTO_NIVELA = 1.0               # 1 = al empezar un cruce del Auto, el tema que entra arranca al mismo nivel que el que sale (hasta ±3 dB) y se va soltando hasta su nivel normal · 0 = no
+AUTO_ENTRADA_ESTRUCTURA = 1.0   # 1 = si el tema que entra tiene una intro larga, arranca más adentro para que su primera sección fuerte (voz / más energía) caiga justo al terminar el cruce · 0 = siempre desde su primer compás
+AUTO_APRENDE = 1.0        # 1 = el Auto corre la duración según tus 👍 / 👎 anteriores con pares de temas parecidos · 0 = ignora lo aprendido
+AUTO_OPTIMIZA = 1.0      # 1 = el Auto prueba variantes cercanas del cruce (duración ±2 compases, línea de compás del bajo) y ejecuta la que menos choca · 0 = exactamente tu plantilla
 ACEL_POS = 0.0           # estrategia 2: hasta dónde ACELERA el crossfader desde el inicio (posición 0..1); 0 = automático: hasta el cruce de las dos curvas
 S2_FRENO = 3.0           # estrategia 2: cuánto frena desde ahí hasta la pausa (× : 1 = no frena · la velocidad en la pausa es 1/× de la máxima)
 START_V = 0.35           # estrategia 2: velocidad con que arranca el crossfader (× la máxima)
@@ -60,7 +70,7 @@ BREAK_ACTIVO = 0.0        # 1 = antes de la marca roja se vigila un «break» de
 BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (fracción de la duración del tema: 0.15 = 15 %)
 BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
 BREAK_COMPASES = 2.0      # el break tiene que durar al menos tantos compases seguidos
-DEFECTOS = {k: v for k, v in dict(AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
+DEFECTOS = {k: v for k, v in dict(NIVEL_LUFS=NIVEL_LUFS, AUTO_ECO=AUTO_ECO, AUTO_TONO=AUTO_TONO, AUTO_NIVELA=AUTO_NIVELA, AUTO_TEMPO_OCULTO=AUTO_TEMPO_OCULTO, AUTO_ENTRADA_ESTRUCTURA=AUTO_ENTRADA_ESTRUCTURA, AUTO_APRENDE=AUTO_APRENDE, AUTO_OPTIMIZA=AUTO_OPTIMIZA, AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
             ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
@@ -506,41 +516,151 @@ def disenar_pro(sale, entra, compat=None, dif_tempo=0.0, forma=None):
             "razon": razon}
 
 
+def _elegir_bajo(db, bajo_e, pos, rate, total, D, pausa, pc, zpb, ps0, compas):
+    """Cuándo traspasar el bajo: entre las líneas de compás del que sale, la más cercana a donde lo pusiste (ps0) donde el bajo de B ya suena
+    y, de preferencia, al inicio de una frase. Devuelve (posición del crossfader, costo): el costo es más alto si no hay una buena línea."""
+    T_s, idx_s = _compases_en(db, pos, rate, total)
+    p0 = frac_pausa(pc, zpb) * D
+    p1 = p0 + (pausa_s() if pausa else 0.0)
+    mejor = None
+    primera_en_pausa = True
+    for T, i in zip(T_s, idx_s):
+        T = float(T)
+        en_pausa = pausa and p0 <= T <= p1
+        if en_pausa:
+            if not primera_en_pausa:
+                continue
+            primera_en_pausa = False
+        if T < 0.3 * D or T > 0.9 * total:
+            continue
+        t = _t_de_T(T, D, pausa, pc, zpb)
+        c = abs(t - ps0)
+        k = int(T / PASO)
+        if k < len(bajo_e) and bajo_e[k] < 0.25:
+            c += 1.2                                                       # el bajo de B todavía no suena: se quedaría un hueco
+        if i % 8 == 0:
+            c -= 0.12                                                      # inicio de frase
+        if en_pausa:
+            c -= 0.10
+        if mejor is None or c < mejor[0]:
+            mejor = (c, T, en_pausa)
+    if mejor is None:
+        return ps0, 0.5
+    if mejor[2]:
+        return pausa_pos(), mejor[0]
+    t = _t_de_T(mejor[1] - 0.4 * compas, D, pausa, pc, zpb)                # se pide antes de la línea (el mezclador espera a la línea)
+    return math.floor(max(0.05, min(0.95, t)) * 100.0) / 100.0, mejor[0]
+
+
+def _coste_manual(pa, fa, pb, rb, ps, gamma, D, pausa, pc, zpb, vs, ve, ls, le, compat_fac):
+    """Cuánto 'molesta' este cruce: voces de los dos juntas, tiempo en que suenan los dos (si chocan tonalidad/tempo) y saltos de volumen total."""
+    total = D + (pausa_s() if pausa else 0.0)
+    k = min(len(vs), int(total / PASO) + 1)
+    if k < 2:
+        return 0.0
+    clash = juntos = 0.0
+    db = np.zeros(k)
+    for i in range(k):
+        t = _t_de_T(i * PASO, D, pausa, pc, zpb)
+        ha, hb, _la, _lb = perfil_cruce_bandas(t, pa, pb, ps, rampa=rb, fin_a=fa, gamma_a=gamma)
+        juntos += ha * hb * PASO
+        if vs[i] >= UMBRAL_VOZ and ve[i] >= UMBRAL_VOZ:
+            clash += ha * hb * PASO
+        db[i] = 10.0 * math.log10(ha * ha * ls[i] * ls[i] + hb * hb * le[i] * le[i] + 1e-9)
+    c = clash + compat_fac * juntos
+    if ls[0] > 1e-4 and le[k - 1] > 1e-4:                                   # el volumen total no debería saltar entre el que sale y el que entra
+        ref = 10.0 * math.log10(0.5 * (ls[0] ** 2 + le[k - 1] ** 2))
+        c += 0.02 * float(np.mean((db - ref) ** 2))
+    return c
+
+
 def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
-    """ESTRATEGIA 2 — el Auto mezcla EXACTAMENTE como el cruce manual que ya te gusta: la forma de los deslizadores de
-    "Forma de cruce A/B", la duración del deslizador «Duración», la pausa del 50 % y el frenado en el cruce de los ajustes de ⚙.
-    La duración va en compases enteros: MAN_COMPASES (por defecto 8; a 96 BPM ≈ 20 s, a 136 BPM ≈ 14 s) o, con 0, los segundos de «Duración»
-    redondeados a compases. El Auto la acorta si al
-    tema que sale no le queda tiempo. El traspaso del bajo lo hace el mezclador en la línea de compás, igual que en el manual."""
+    """ESTRATEGIA 2 — el Auto mezcla como la configuración propia que le pusiste en ⚙ Ajustes: su forma de A/B, su pausa, su ritmo y su tiempo
+    (que incluye la pausa). La duración va en compases enteros: MAN_COMPASES (por defecto 8; a 96 BPM ≈ 20 s) o, con 0, los segundos de «Duración».
+    El Auto la acorta si al tema que sale no le queda tiempo.
+    Con AUTO_OPTIMIZA = 1 además prueba variantes cercanas (±2 compases y distintas líneas de compás para el bajo), las puntúa
+    (voces juntas, saltos de volumen, bajo de B ausente) y ejecuta la mejor; con 0 hace exactamente la plantilla."""
     bpm = float(sale.get("bpm", 0) or 0) * float(sale.get("rate", 1.0) or 1.0)
     compas = 240.0 / bpm if bpm > 20 else 2.0
     resta = sale.get("resta")
     dur = float(forma.get("dur") or 10.0)
-    pausa = hay_pausa()
-    n = max(2, int(round(MAN_COMPASES))) if MAN_COMPASES >= 1 else max(2, int(round(dur / compas)))
-    n = min(n, max(2, int(MAX_SEG_MANUAL // compas)))               # tope: el cruce nunca pasa de 30 s
+    pausa0 = hay_pausa()
+    n0 = max(2, int(round(MAN_COMPASES))) if MAN_COMPASES >= 1 else max(2, int(round(dur / compas)))
+    cap = max(2, int(MAX_SEG_MANUAL // compas))                    # tope: el cruce nunca pasa de 30 s
+    n0 = min(n0, cap)
     choque = (compat == 0) or dif_tempo > 0.08
     if choque and ADAPTA_DUR >= 0.5:                              # tonalidad o tempo que chocan: se pasa más rápido de un tema al otro
-        n = max(4, int(round(n * 0.75)))
-    total = n * compas                                            # el tiempo estipulado INCLUYE la pausa
-    pa_s = pausa_s() if pausa else 0.0
-    while resta is not None and n > 2 and total > resta - 1.0:
-        n -= 1; total = n * compas
-    if resta is not None and total > resta - 1.0:                  # no entra ni con 2 compases: lo que quede, sin pausa
-        n, total, pausa, pa_s = 0, max(1.5, resta - 1.5), False, 0.0
-    D = max(2.0, total - pa_s)                                     # lo que recorre el crossfader: el total menos lo que se queda quieto
+        n0 = max(4, int(round(n0 * 0.75)))
     pb = max(0.0, min(0.9, float(forma["pb"]))); rb = max(0.02, min(float(forma["rb"]), 1.0 - pb))
     pa = max(0.0, min(0.9, float(forma["pa"]))); fa = max(pa + 0.05, min(1.0, float(forma.get("fa") or 1.0)))
     gamma = float(forma.get("gamma") or 1.0)
-    ps = max(0.0, min(0.97, float(forma.get("ps", 0.5))))
+    ps0 = max(0.0, min(0.97, float(forma.get("ps", 0.5))))
     pc, zpb = forma.get("pc"), forma.get("zpb")
-    razon = "como tu cruce manual (tu forma, tu duración, la pausa y el frenado)"
+
+    # --- datos de los dos temas (voces, bajo, volumen) para mirar cómo chocan y para aprender de tus votos ---
+    largo = min(cap, n0 + 2 + MAX_SESGO_APRENDE) * compas + (pausa_s() if pausa0 else 0.0) + 1.0
+    dt_s, dt_e = float(sale.get("dt", 0.5)), float(entra.get("dt", 0.5))
+    vs, vok_s = _serie(sale.get("voz"), dt_s, sale["pos"], sale["rate"], largo)
+    ve, vok_e = _serie(entra.get("voz"), dt_e, entra["pos"], entra["rate"], largo)
+    voces = None
+    if vok_s and vok_e:
+        k0 = max(2, min(len(vs), int(n0 * compas / PASO)))
+        voces = float(np.mean((vs[:k0] >= UMBRAL_VOZ) & (ve[:k0] >= UMBRAL_VOZ)))      # fracción del cruce con voz en los dos
+    par = aprendizaje.clave_par(compat, dif_tempo, voces)
+    n_base = n0
+    sesgo = 0
+    if AUTO_APRENDE >= 0.5:                                       # lo que aprendió de tus 👍 / 👎 para pares parecidos
+        sesgo = aprendizaje.sesgo_compases(par)
+        n0 = max(2, min(cap, n0 + sesgo))
+
+    def tiempos(n):
+        """(n, total, pausa, pausa en s, D) para n compases, ajustado a lo que le queda al que sale."""
+        pausa = pausa0
+        total = n * compas                                        # el tiempo estipulado INCLUYE la pausa
+        pa_s = pausa_s() if pausa else 0.0
+        while resta is not None and n > 2 and total > resta - 1.0:
+            n -= 1; total = n * compas
+        if resta is not None and total > resta - 1.0:              # no entra ni con 2 compases: lo que quede, sin pausa
+            n, total, pausa, pa_s = 0, max(1.5, resta - 1.5), False, 0.0
+        return n, total, pausa, pa_s, max(2.0, total - pa_s)
+
+    n, total, pausa, pa_s, D = tiempos(n0)
+    ps = ps0
+    extra = ""
+    if AUTO_OPTIMIZA >= 0.5 and n >= 2:
+        try:
+            n_max = min(cap, n0 + 2)
+            be, _ = _serie(entra.get("bajo"), dt_e, entra["pos"], entra["rate"], largo)
+            ls, _ = _serie(sale.get("rms"), float(sale.get("rms_dt", 0.5)), sale["pos"], sale["rate"], largo)
+            le, _ = _serie(entra.get("rms"), float(entra.get("rms_dt", 0.5)), entra["pos"], entra["rate"], largo)
+            ls = ls * float(sale.get("gain", 1.0)); le = le * float(entra.get("gain", 1.0))
+            if vok_s and vok_e:
+                compat_fac = 0.3 if choque else 0.0
+                mejor = None
+                for nc in range(max(2, n0 - 2), n_max + 1):
+                    n_c, tot_c, pausa_c, pa_c, D_c = tiempos(nc)
+                    if n_c < 2:
+                        continue
+                    ps_c, c_bajo = _elegir_bajo(sale.get("db"), be, sale["pos"], sale["rate"], tot_c, D_c, pausa_c, pc, zpb, ps0, compas)
+                    c = _coste_manual(pa, fa, pb, rb, ps_c, gamma, D_c, pausa_c, pc, zpb, vs, ve, ls, le, compat_fac)
+                    c += 0.5 * c_bajo + 0.35 * abs(nc - n0)         # (se prefiere quedarse cerca de tu plantilla)
+                    if mejor is None or c < mejor[0]:
+                        mejor = (c, n_c, tot_c, pausa_c, pa_c, D_c, ps_c)
+                if mejor is not None:
+                    _c, n, total, pausa, pa_s, D, ps = mejor
+                    extra = f" · optimizado ({n} compases" + (f", tu plantilla: {n_base}" if n != n_base else "") + f", bajo al {ps:.0%})"
+        except Exception:
+            import traceback; traceback.print_exc()
+    razon = "como tu cruce Auto de ⚙ Ajustes (tu forma, tu tiempo, la pausa y el ritmo)" + extra
+    if sesgo:
+        razon += f" · aprendido de tus votos: {sesgo:+d} compases para este tipo de par"
     if choque:
         razon += " · tonalidad/tempo chocan" + (": fundido más corto" if ADAPTA_DUR >= 0.5 else "")
     return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
             "conflicto": 0.0, "choque_ini": 0.0, "fin_voz_a": None,
             "pc": None if pc is None else float(pc), "zpb": None if zpb is None else float(zpb),
             "dur": float(D), "pausa": bool(pausa), "pausa_s": float(pa_s), "n": int(n), "estrategia": "manual",
+            "n_base": int(n_base), "clave_par": par, "compat": compat, "dif_tempo": float(dif_tempo or 0.0),
             "nombre": (f"Como el manual · {n} compases · {D + pa_s:.0f} s" if n else f"Como el manual · corta · {D:.0f} s") + (f" (con pausa de {pausa_s():g} s)" if pausa else ""),
             "razon": razon}
 

@@ -5,7 +5,8 @@ import random
 import time
 import numpy as np
 from PySide6.QtCore import QTimer
-from setup import cruce_auto
+from setup import cruce_auto, estructura
+from setup import tono
 from setup.analisis import compat_armonica
 from setup.base import _log_diferido, log
 from setup.config import guardar_config, leer_config
@@ -56,7 +57,12 @@ class AutomaticoMixin:
         an = d.analysis or {}
         pos = d.position_virtual_seconds(); rate = max(1e-6, d.rate_eff)
         dd = {"voz": an.get("voz") or [], "bajo": an.get("bajo") or [], "dt": float(an.get("voz_dt", 0.5) or 0.5),
-              "pos": pos, "rate": rate, "bpm": float(an.get("bpm", 0) or 0), "db": self._db_de(d)}
+              "pos": pos, "rate": rate, "bpm": float(an.get("bpm", 0) or 0), "db": self._db_de(d),
+              "rms": an.get("waveform") or [], "gain": float(getattr(d, "auto_gain", None) or an.get("auto_gain", 1.0) or 1.0)}
+        try:                                              # paso (s) entre valores de la curva de volumen del tema
+            dd["rms_dt"] = float(an.get("duration", 0.0)) / max(1, len(dd["rms"])) if dd["rms"] else 0.5
+        except Exception:
+            dd["rms_dt"] = 0.5
         if d.audio is not None:
             fin = self._fin_audible(d) if es_sale else len(d.audio) / max(1, d.sr)
             dd["resta"] = max(0.0, (fin - pos) / rate)
@@ -148,7 +154,8 @@ class AutomaticoMixin:
             if deck is None or not deck.path:
                 return None
             k = ((deck.analysis or {}).get("key") or {}).get("camelot")
-            return k or self.biblioteca.info(deck.path)[1]
+            k = k or self.biblioteca.info(deck.path)[1]
+            return tono.desplazar(k, getattr(deck, "semitonos", 0)) if k and getattr(deck, "semitonos", 0) else k      # si el tema suena subido/bajado, esa es su clave
         except Exception:
             return None
 
@@ -359,6 +366,39 @@ class AutomaticoMixin:
         db = a.get("downbeats_full") or a.get("downbeats") or []
         return np.asarray(db, dtype=np.float64)
 
+    def _entrada_por_estructura(self, sale, entra):
+        """(segundo donde arrancar al entrante, frases salteadas, segundo de su primera sección fuerte) o None.
+        Si el entrante tiene una intro larga, arranca más adentro para que su primera sección fuerte (cuando canta o sube la energía)
+        caiga justo cuando termina el cruce. Con None se arranca de siempre (desde su primer compás)."""
+        if cruce_auto.AUTO_ENTRADA_ESTRUCTURA < 0.5:
+            return None
+        try:
+            an = entra.analysis or {}
+            db_e = self._db_de(entra)
+            if len(db_e) == 0:
+                return None
+            if self.cruce_auto and self.cruce_ab and self.cruce_bandas and not self._cruce_simple():
+                T = self._dur_auto_estimada(sale, entra)                   # fundido + pausa
+            else:
+                T = float(self.spin_mix.value()) + (cruce_auto.PAUSA if cruce_auto.hay_pausa() else 0.0)
+            bs = float((sale.analysis or {}).get("bpm", 0) or 0) * float(sale.rate_eff)
+            be = float(an.get("bpm", 0) or 0)
+            rate = bs / be if (bs > 0 and be > 0 and 0.7 < bs / be < 1.4) else 1.0
+            return estructura.entrada_alineada(an, db_e, T, rate)
+        except Exception:
+            import traceback; traceback.print_exc()
+            return None
+
+    def _poner_entrada(self, sale, entra):
+        """Deja al entrante (todavía parado) en su punto de arranque: su primer compás o, si tiene intro larga, más adentro (ver arriba)."""
+        db_e = self._db_de(entra)
+        if not len(db_e):
+            return
+        r = self._entrada_por_estructura(sale, entra)
+        entra.set_position_seconds(float(r[0]) if r else float(db_e[0]))      # el entrante sale desde su primer compás (o desde donde marca su estructura)
+        if r:
+            log("estructura", f"Deck {entra.name}: salta {r[1]} frase(s) de intro y arranca en {r[0]:.1f} s para que su primera sección fuerte ({r[2]:.1f} s) caiga al terminar el cruce")
+
     def _hasta_proxima_frase(self, sale):
         """Segundos reales hasta que el tema que suena empiece su próxima frase (cada 8 compases desde su primer
         compás). None si no hay grilla."""
@@ -426,9 +466,7 @@ class AutomaticoMixin:
                     espera = None
         if espera is None or espera < 0.05:
             if not entra.playing and entra.audio is not None and entra.analysis and not entra.pos_manual:
-                db_e = self._db_de(entra)
-                if len(db_e):
-                    entra.set_position_seconds(float(db_e[0]))      # el entrante sale desde su primer compás
+                self._poner_entrada(sale, entra)
             self._mix_auto = True
             self._mix_arrancar()
             return
@@ -445,9 +483,7 @@ class AutomaticoMixin:
             if (self.deck_a.path, self.deck_b.path) != (pa, pb) or self.mix_timer.isActive() or self.mix_pausa_timer.isActive():
                 return                                  # cambió algo mientras esperaba (mezcla manual, otro tema…)
             if not entra.playing and entra.audio is not None and entra.analysis and not entra.pos_manual:
-                db_e = self._db_de(entra)
-                if len(db_e):
-                    entra.set_position_seconds(float(db_e[0]))      # el entrante sale desde su primer compás
+                self._poner_entrada(sale, entra)
             self._mix_auto = True
             self._mix_arrancar()
         QTimer.singleShot(int(max(0.0, espera - 0.02) * 1000), _go)

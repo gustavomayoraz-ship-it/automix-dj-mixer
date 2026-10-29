@@ -140,6 +140,22 @@ class SyncMixin:
         y la mezcla es un cruce simple de volumen, sin bandas ni diseño automático."""
         return not self._bpm_compatibles()
 
+    def _x_tempo(self, x):
+        """Avance del cambio de tempo (0 = tempo de A · 1 = tempo de B). En el cruce del Auto el cambio se concentra donde suenan los dos
+        (desde que entra el nuevo hasta que se va el viejo) con arranque y llegada suaves; en el resto, lineal con el crossfader como siempre."""
+        pl = self._plan_activo()
+        if not pl or pl.get("estrategia") != "manual" or cruce_auto.AUTO_TEMPO_OCULTO < 0.5:
+            return x
+        ab = getattr(self, "_cf_dir", "AB") == "AB"
+        t = x if ab else 1.0 - x                                   # avance del cruce (0 = suena el que sale · 1 = el que entra)
+        t0 = float(pl.get("pb", 0.0))                              # el nuevo empieza a oírse
+        t1 = float(pl.get("fa", 1.0))                              # el viejo termina de irse
+        if t1 <= t0 + 0.05:
+            t0, t1 = 0.0, 1.0
+        u = min(1.0, max(0.0, (t - t0) / (t1 - t0)))
+        w = u * u * u * (u * (6.0 * u - 15.0) + 10.0)             # smootherstep: pendiente 0 al empezar y al llegar
+        return w if ab else 1.0 - w
+
     def _apply_shared_bpm(self, x):
         bpm_a0 = self.deck_a.original_bpm
         bpm_b0 = self.deck_b.original_bpm
@@ -150,6 +166,7 @@ class SyncMixin:
             self._alpha_a = self._alpha_b = 0.05
             return
 
+        x = self._x_tempo(x)
         target_bpm_a = bpm_a0 + (bpm_b0 - bpm_a0) * x
         target_bpm_b = bpm_a0 + (bpm_b0 - bpm_a0) * x
 

@@ -8,6 +8,7 @@ import numpy as np
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from setup import cruce_auto, nivel
 from setup.ajustes import NIVEL_V2, SUPPORTED, TARGET_LUFS_RMS, fmt_time
 from setup.analisis import (_guardar_cache, _limpiar_grilla_cache, _mantener_vivo, aplicar_uno, desfase_rejilla_auto,
                             desfase_rejilla_bombos, desplazar_rejilla, grilla_manual, load_audio_stereo, plegar_bpm)
@@ -45,6 +46,8 @@ class Deck(QFrame):
         self.lock = threading.Lock()
         self.original_bpm = None
         self._ws = WsolaFlujo(); self._ws_activo = False; self._ws_exp = None      # estirado de tiempo sin cambiar el tono
+        self.pitch = 1.0; self.semitonos = 0                                       # cambio de tonalidad del tema (ver set_semitonos): 1,0 = el tono original
+        self._pt_ok = False; self._pt_buf = None; self._pt_ph = 0.0; self._pt_pos = 0.0; self._pt_fi = 0
         self._ws_modo = False
         self.loop = None               # (inicio, fin) en muestras del tema mientras hay un loop activo
         self.loop_desfase = 0.0        # muestras que el loop "retrocedió" en total: posición virtual = cursor + desfase
@@ -193,6 +196,7 @@ class Deck(QFrame):
         self.auto_gain = 1.0
         self._ag_listo = False
         self._db_cache = None
+        self.set_semitonos(0)
         self._auto_centrado_sesion = False
         self.tempo_rate = 1.0
         self.tempo_manual = False
@@ -215,6 +219,7 @@ class Deck(QFrame):
             self.cursor = 0
             self._cursor_frac = 0.0
             self._ws_activo = False
+        self.set_semitonos(0)
         self.analysis = None
         self.original_bpm = None
         self.auto_gain = 1.0
@@ -238,7 +243,7 @@ class Deck(QFrame):
             # también el callback de audio, y si se queda esperando se oye un corte en lo que suena.
             y32 = np.ascontiguousarray(y, dtype=np.float32)
             y32, recorte = self._recortar_silencio_final(y32, sr)
-            ag = self._calc_auto_gain(y32)
+            ag = self._calc_auto_gain(y32, sr)
             with self.lock:
                 if path != self.path:
                     return
@@ -290,8 +295,16 @@ class Deck(QFrame):
             return audio, 0.0
 
     @staticmethod
-    def _calc_auto_gain(audio):
-        """Auto-Gain a partir del audio ya cargado (sin librosa ni re-análisis)."""
+    def _calc_auto_gain(audio, sr=44100):
+        """Auto-Gain a partir del audio ya cargado (sin librosa ni re-análisis). Con NIVEL_LUFS (⚙ Ajustes) mide la sonoridad real
+        (filtro K y compuertas: ignora silencios e intros calladas); si no se puede, usa el RMS de siempre."""
+        try:
+            if cruce_auto.NIVEL_LUFS >= 0.5:
+                g = nivel.ganancia_k(audio, sr, TARGET_LUFS_RMS)
+                if g is not None:
+                    return g
+        except Exception:
+            import traceback; traceback.print_exc()
         try:
             n = (len(audio) // 1024) * 1024
             if n < 2048:
@@ -522,6 +535,7 @@ class Deck(QFrame):
             log(f"deck {self.name}", "⏹ stop")
         self.playing = False
         self.trim = 1.0
+        self.set_semitonos(0)
         with self.lock:
             self.cursor = 0
             self._cursor_frac = 0.0
@@ -757,29 +771,98 @@ class Deck(QFrame):
                 return out
             rate = self.rate_eff
             ganancia_total = self.auto_gain * NIVEL_V2
-            try:
-                if Deck.WSOLA and self._ws_usar(rate):
-                    y = self._render_wsola(frames, rate)
-                elif self._ws_activo:
-                    if self._ws_exp == (self.cursor, self._cursor_frac):
-                        h0 = self._ws.head
-                        y_ws, _ = self._ws.leer(self.audio, frames, float(np.clip(rate, 0.5, 2.0)))
-                        self.cursor = int(h0); self._cursor_frac = h0 - self.cursor
-                        y_d = self._render_directo(frames, rate)
-                        f = np.linspace(0.0, 1.0, frames, dtype=np.float32)[:, None]
-                        y = y_ws * (1.0 - f) + y_d * f
-                    else:
-                        y = self._render_directo(frames, rate)
-                    self._ws_activo = False
+            if self.pitch != 1.0:
+                try:
+                    y = self._render_tono(frames, rate)
+                except Exception:
+                    import traceback; traceback.print_exc()
+                    self.pitch = 1.0; self.semitonos = 0; self._pt_ok = False; self._ws_activo = False
+                    print("[audio] cambio de tonalidad desactivado por un error")
+                    y = self._render_normal(frames, rate)
+            else:
+                if self._pt_ok:                                   # salió del modo tono: el estirado normal arranca limpio desde el cursor
+                    self._pt_ok = False; self._ws_activo = False
+                y = self._render_normal(frames, rate)
+            out[:] = y * ganancia_total
+        return out
+
+    def _render_normal(self, frames, rate):
+        """Camino de siempre (sin cambio de tonalidad): lectura directa, o estirado WSOLA si el tempo se aparta lo suficiente de 1,0."""
+        try:
+            if Deck.WSOLA and self._ws_usar(rate):
+                y = self._render_wsola(frames, rate)
+            elif self._ws_activo:
+                if self._ws_exp == (self.cursor, self._cursor_frac):
+                    h0 = self._ws.head
+                    y_ws, _ = self._ws.leer(self.audio, frames, float(np.clip(rate, 0.5, 2.0)))
+                    self.cursor = int(h0); self._cursor_frac = h0 - self.cursor
+                    y_d = self._render_directo(frames, rate)
+                    f = np.linspace(0.0, 1.0, frames, dtype=np.float32)[:, None]
+                    y = y_ws * (1.0 - f) + y_d * f
                 else:
                     y = self._render_directo(frames, rate)
-            except Exception:
-                import traceback; traceback.print_exc()
-                Deck.WSOLA = False
                 self._ws_activo = False
-                print("[audio] WSOLA desactivado por un error: se usa el remuestreo")
+            else:
                 y = self._render_directo(frames, rate)
-            out[:] = y * ganancia_total
+        except Exception:
+            import traceback; traceback.print_exc()
+            Deck.WSOLA = False
+            self._ws_activo = False
+            print("[audio] WSOLA desactivado por un error: se usa el remuestreo")
+            y = self._render_directo(frames, rate)
+        return y
+
+    def set_semitonos(self, s):
+        """Sube o baja la tonalidad del tema `s` semitonos SIN cambiar su tempo (0 = original). Se vuelve a 0 al vaciar, cargar o detener el deck."""
+        s = int(s)
+        self.semitonos = s
+        self.pitch = 2.0 ** (s / 12.0) if s else 1.0
+
+    def _sinc_leer(self, src, pos):
+        """Lee `src` (n,2) en las posiciones fraccionarias `pos` con el interpolador sinc de alta calidad."""
+        n = len(src)
+        tab = Deck._tabla_sinc()
+        i1 = np.floor(pos).astype(np.int64)
+        fr = (pos - i1) * Deck.SINC_FASES
+        j = np.floor(fr).astype(np.int64)
+        w = (fr - j).astype(np.float32)[:, None]
+        H = tab[j] * (1.0 - w) + tab[j + 1] * w
+        idx = np.clip(i1[:, None] + Deck._SINC_K[None, :], 0, n - 1)
+        return np.einsum("nt,ntc->nc", H, src[idx]).astype(np.float32)
+
+    def _render_tono(self, frames, rate):
+        """Cambio de tonalidad con el tempo intacto: se estira con WSOLA a rate/pitch (tono original) y esa salida se lee a razón `pitch`
+        (el remuestreo sube o baja el tono), de modo que por muestra de salida el tema avanza `rate` como siempre."""
+        p = float(np.clip(self.pitch, 0.5, 2.0))
+        rp = float(np.clip(rate / p, 0.5, 2.0))
+        pos_nom = self.cursor + self._cursor_frac
+        if not self._pt_ok or abs(pos_nom - self._pt_pos) > 4.0:            # arranque o salto de posición
+            self._ws.reset(pos_nom)
+            self._pt_buf = np.zeros((16, 2), dtype=np.float32)
+            self._pt_ph = 16.0
+            self._pt_ok = True
+            self._pt_fi = 0
+        buf, ph = self._pt_buf, self._pt_ph
+        need = int(ph + (frames - 1) * p) + 18
+        fin = False
+        while len(buf) < need and not fin:
+            y, fin = self._ws.leer(self.audio, max(need - len(buf), 512), rp)
+            buf = np.concatenate((buf, y))
+        out = self._sinc_leer(buf, ph + np.arange(frames, dtype=np.float64) * p)
+        if self._pt_fi < 128:
+            k = min(128 - self._pt_fi, frames)
+            out[:k] *= ((np.arange(k, dtype=np.float32) + self._pt_fi + 1.0) / 128.0)[:, None]
+            self._pt_fi += k
+        ph += frames * p
+        drop = max(0, int(ph) - 16)
+        buf = buf[drop:]; ph -= drop
+        self._pt_buf, self._pt_ph = buf, ph
+        cv = self._ws.head - (len(buf) - ph) * rp                               # posición real del próximo sonido (descontando lo que quedó en el búfer)
+        cv = max(0.0, cv)
+        self.cursor = int(cv); self._cursor_frac = cv - self.cursor
+        self._pt_pos = cv
+        if (fin and ph >= len(buf) - 17) or self.cursor >= len(self.audio) - 2:
+            self.playing = False
         return out
 
     LOOP_FADE = 48
