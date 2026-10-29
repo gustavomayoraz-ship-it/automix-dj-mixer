@@ -2,6 +2,7 @@
 from PySide6.QtGui import QBrush, QColor, QCursor, QFontMetricsF, QLinearGradient, QPainter, QPen, QPolygonF
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtWidgets import QSizePolicy, QWidget
+from setup import cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST, fmt_time
 from setup.config import DEF_MARCA
 from setup.tema import TEMA
@@ -121,6 +122,13 @@ class BarraProgresoConMarca(QWidget):
             txt_m = f"⚓ {self.marca * 100:.1f}%"
             p.setPen(QColor(0, 0, 0, 170)); p.drawText(r_txt.translated(1, 1), int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight), txt_m)
             p.setPen(QColor(TEMA["rojo"])); p.drawText(r_txt, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight), txt_m)
+
+        if self.marca >= 0 and cruce_auto.BREAK_ACTIVO >= 0.5:        # línea de trazos: desde dónde empieza a vigilarse un break (⚙ «Vigilar desde»)
+            xv = self._x_de_frac(max(0.0, self.marca - float(cruce_auto.BREAK_VENTANA)))
+            amb = QColor(TEMA["ambar"])
+            p.setPen(QPen(QColor(0, 0, 0, 170), 3.4)); p.drawLine(QPointF(xv, y_top), QPointF(xv, y_bot))
+            lin = QPen(amb, 1.8, Qt.PenStyle.CustomDashLine); lin.setDashPattern([2.5, 2.0])
+            p.setPen(lin); p.drawLine(QPointF(xv, y_top), QPointF(xv, y_bot))
 
         if self.marca >= 0:                      # la marca va AL FRENTE: se dibuja al final, encima de la barra
             xm = self._x_de_frac(self.marca)

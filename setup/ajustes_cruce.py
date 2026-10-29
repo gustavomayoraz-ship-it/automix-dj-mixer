@@ -1029,6 +1029,14 @@ class AjustesCruce(QDialog):
         self.panel_nuevo.sincronizar()
         if hasattr(self, "vista_inc"):
             self.vista_inc.update()
+        self._actualizar_barra()
+
+    def _actualizar_barra(self):
+        """Repinta la barra del auto-enganche (la línea de trazos de «Vigilar desde» depende de estos ajustes)."""
+        try:
+            self.v.barra_prog.update()
+        except AttributeError:
+            pass
 
     def _olvidar(self):
         aprendizaje.olvidar()
@@ -1042,6 +1050,7 @@ class AjustesCruce(QDialog):
         cruce_auto.aplicar(cruce_auto.DEFECTOS)
         guardar()
         self._visibles()
+        self._actualizar_barra()
         self.vista.update()
         self.panel_nuevo.sincronizar()
         if hasattr(self, "vista_inc"):
