@@ -145,12 +145,20 @@ class MezclaMixin:
         self._mix_tref = time.perf_counter()
         self.mix_steps_total = 1000                      # (solo para mostrar el avance en %)
         self.mix_steps_done = 0
-        self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True)) or not cruce_auto.hay_pausa()     # cruce simple: sin pausa · Auto y Manual: con la pausa del 50 % de ⚙ Ajustes (3 s por defecto; Auto la omite si no queda tiempo)
+        self._mix_pausa_hecha = bool(simple) or (bool(self._plan) and not self._plan.get("pausa", True)) or not cruce_auto.hay_pausa(self._es_auto2())     # cruce simple: sin pausa · Auto y Manual: con la pausa del 50 % de ⚙ Ajustes (3 s por defecto; Auto la omite si no queda tiempo)
         self.mix_pausa_timer.stop()
         self.mix_timer.start(interval_ms)
         self._set_status(f"🎬 Mezclando {direction} en {int(duration_s)} s..." + (f"  🤖 {self._plan['nombre']}" if self._plan else ""))
 
+    def _es_auto2(self):
+        """¿La mezcla en curso es del Auto «como mi manual»? (usa su propia pausa y su propio ritmo, separados del manual)"""
+        return bool(self._plan) and self._plan.get("estrategia") == "manual"
+
     def _mix_step(self):
+        with cruce_auto.contexto(self._es_auto2()):
+            self._mix_step_interno()
+
+    def _mix_step_interno(self):
         ahora = time.perf_counter()
         self._mix_acum += ahora - self._mix_tref         # tiempo real transcurrido de mezcla (sin contar la pausa del 50 %)
         self._mix_tref = ahora
@@ -185,17 +193,21 @@ class MezclaMixin:
                 self.crossfader.setValue(int(round(vp)))
                 self._mix_pausa_hecha = True
                 self.mix_timer.stop()
-                self._set_status(f"⏸ Mezcla pausada {cruce_auto.PAUSA:g} s en el {int(round(q * 100))}%…")
+                self._set_status(f"⏸ Mezcla pausada {cruce_auto.pausa_s():g} s en el {int(round(q * 100))}%…")
                 self.mix_pausa_timer.start(max(50, int(self._pausa_s() * 1000)))
                 return
 
         self.crossfader.setValue(value)
 
     def _pausa_s(self):
+        with cruce_auto.contexto(self._es_auto2()):
+            return self._pausa_s_interno()
+
+    def _pausa_s_interno(self):
         """Duración de la pausa del 50 %. Con ⚙ «Pausa hasta línea de compás»: termina justo en una línea de compás del tema que sale
         (la 1.ª línea es donde el mezclador pasa el bajo; la pausa termina en esa línea o en una posterior, la más cercana a lo configurado), así
         el resto del fundido sigue en el compás y no a media frase."""
-        base = float(cruce_auto.PAUSA)
+        base = float(cruce_auto.pausa_s())
         if cruce_auto.PAUSA_EN_LINEA < 0.5 or base < 0.5:
             return base
         try:

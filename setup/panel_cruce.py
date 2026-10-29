@@ -285,6 +285,11 @@ class PanelCruce(QFrame):
                 self.graf.actualizar(ul["pa"], ul["pb"], None, ul["ps"], True, ul["fa"], rb=ul["rb"], gamma=ul.get("gamma", 1.0),
                                      etiqueta=(f"🤖 {'próximo' if prev else 'último'}: {ul['n']} comp · {ul['dur']:.0f} s"
                                                + ("" if ul.get("pausa", True) else " · sin pausa")))
+            elif cruce_auto.ESTRATEGIA >= 1.5:             # todavía sin temas / sin mezclas: la forma propia del Auto «como mi manual» (la de ⚙ Ajustes)
+                fa = cruce_auto.AUTO_FA
+                self.graf.actualizar(cruce_auto.AUTO_PA, cruce_auto.AUTO_PB, None, cruce_auto.AUTO_PS, True,
+                                     None if fa >= 0.995 else fa, rb=cruce_auto.AUTO_RB, gamma=cruce_auto.AUTO_G,
+                                     etiqueta="🤖 AUTO · su propia forma (⚙ Ajustes)")
             elif cruce_auto.ESTRATEGIA >= 0.5:             # todavía sin temas / sin mezclas: se dibuja la forma que usa el Auto Pro (la de los deslizadores)
                 fa = self.sl_fa.value() / 100.0
                 self.graf.actualizar(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, None, self.sl_s.value() / 100.0, True,

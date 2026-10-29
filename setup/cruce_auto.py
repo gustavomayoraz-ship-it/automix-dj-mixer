@@ -13,7 +13,7 @@ del par de temas (dónde hay voz o melodía, dónde hay bombo y bajo, los compas
 El resultado es un dict para `perfil_cruce_bandas`. Este módulo solo calcula (no toca la interfaz ni el audio)."""
 import math
 import numpy as np
-from setup.config import perfil_cruce_bandas, perfil_cruce_ab
+from setup.config import (DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_bandas, perfil_cruce_ab)
 
 UMBRAL_VOZ = 0.45        # desde este valor (0..1) se considera que hay voz/melodía
 PASO = 0.25              # resolución (s) con que se miran los temas
@@ -35,6 +35,15 @@ ESTRATEGIA = 2.0         # 2 = como tu cruce MANUAL (tu forma, tu duración, la 
 ESPERA_FRASE = 8.0       # al llegar a la marca del auto-enganche, espera hasta este máximo (s) al próximo inicio de frase (8 compases) del tema que sale · 0 = arranca justo en la marca
 PAUSA_EN_LINEA = 1.0     # 1 = la pausa del 50 % termina en una línea de compás del que sale (después del cambio de bajo) · 0 = dura siempre lo mismo
 ADAPTA_DUR = 1.0         # 1 = el Auto 'como mi manual' acorta el fundido (¾) si chocan la tonalidad o el tempo · 0 = siempre el mismo largo
+# --- CONFIGURACIÓN PROPIA DEL AUTO «como mi manual» (estrategia 2): no toca los deslizadores ni el ritmo del cruce MANUAL ---
+AUTO_PA = DEF_PUNTO_A     # A (sale)
+AUTO_PB = DEF_PUNTO_B     # B (entra)
+AUTO_RB = DEF_RAMPA_B     # B sube en
+AUTO_FA = DEF_FIN_A       # A termina en
+AUTO_G = DEF_GAMMA_A      # forma de A
+AUTO_PS = DEF_PUNTO_S     # bajo (cambia)
+AUTO_PAUSA = 3.0          # pausa del Auto (s)
+AUTO_PAUSA_POS = 0.5      # dónde se queda la pausa del Auto (posición del crossfader)
 ACEL_POS = 0.0           # estrategia 2: hasta dónde ACELERA el crossfader desde el inicio (posición 0..1); 0 = automático: hasta el cruce de las dos curvas
 S2_FRENO = 3.0           # estrategia 2: cuánto frena desde ahí hasta la pausa (× : 1 = no frena · la velocidad en la pausa es 1/× de la máxima)
 START_V = 0.35           # estrategia 2: velocidad con que arranca el crossfader (× la máxima)
@@ -51,7 +60,7 @@ BREAK_ACTIVO = 0.0        # 1 = antes de la marca roja se vigila un «break» de
 BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (fracción de la duración del tema: 0.15 = 15 %)
 BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
 BREAK_COMPASES = 2.0      # el break tiene que durar al menos tantos compases seguidos
-DEFECTOS = {k: v for k, v in dict(ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
+DEFECTOS = {k: v for k, v in dict(AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_COMPASES=BREAK_COMPASES, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
             ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
@@ -109,8 +118,34 @@ def valores():
     return {k: g[k] for k in DEFECTOS}
 
 
-def hay_pausa():
-    return PAUSA >= 0.1
+_CTX = [False]           # True mientras se trabaja con el cruce AUTO «como mi manual» (su pausa, su ritmo); False = el manual (y las demás estrategias)
+
+
+class contexto:
+    """with contexto(True): ... → pausa y ritmo del Auto «como mi manual»; with contexto(False): ... → los del cruce manual. Se puede anidar."""
+    def __init__(self, auto=True):
+        self.auto = bool(auto)
+    def __enter__(self):
+        self._ant = _CTX[0]; _CTX[0] = self.auto
+        return self
+    def __exit__(self, *exc):
+        _CTX[0] = self._ant
+        return False
+
+
+def en_auto():
+    """¿Se está trabajando con el Auto «como mi manual» (estrategia 2)?"""
+    return bool(_CTX[0]) and ESTRATEGIA >= 1.5
+
+
+def pausa_s():
+    """Pausa (s): la del Auto «como mi manual» si el contexto es ese; si no, la del cruce manual."""
+    return float(AUTO_PAUSA) if en_auto() else float(PAUSA)
+
+
+def hay_pausa(auto=None):
+    a = en_auto() if auto is None else (bool(auto) and ESTRATEGIA >= 1.5)
+    return (AUTO_PAUSA if a else PAUSA) >= 0.1
 COMPASES = (2, 3, 4, 5, 6, 8, 10, 12, 16)
 
 
@@ -170,7 +205,7 @@ _MAPAS2 = {}
 
 
 def _estrategia2():
-    return ESTRATEGIA >= 1.5
+    return en_auto()
 
 
 def _mapa2(pc):
@@ -233,7 +268,28 @@ def punto_cruce(pa, fa, pb, rb, gamma):
 
 def pausa_pos():
     """Posición del crossfader (0..1) donde se queda la pausa, siempre entre 0.25 y 0.75 (0.5 = en el medio)."""
-    return min(0.75, max(0.25, float(PAUSA_POS)))
+    return min(0.75, max(0.25, float(AUTO_PAUSA_POS if en_auto() else PAUSA_POS)))
+
+
+def zona_auto():
+    """(cruce de las dos líneas, inicio de la rampa de B) con la forma PROPIA del Auto; None si no se cruzan en el tramo útil."""
+    try:
+        fa = None if AUTO_FA >= 0.995 else float(AUTO_FA)
+        pb = float(AUTO_PB)
+        pc = punto_cruce(float(AUTO_PA), fa, pb, max(0.02, min(float(AUTO_RB), 1.0 - pb)), float(AUTO_G))
+    except Exception:
+        return None
+    return (pc, pb) if 0.0 < pc <= 0.75 else None
+
+
+def forma_auto(dur):
+    """La forma que usa el Auto «como mi manual» (la de su panel en ⚙ Ajustes, no la de los deslizadores del manual)."""
+    f = {"pa": float(AUTO_PA), "pb": float(AUTO_PB), "rb": float(AUTO_RB), "ps": float(AUTO_PS), "gamma": float(AUTO_G),
+         "fa": (None if AUTO_FA >= 0.995 else float(AUTO_FA)), "dur": float(dur)}
+    z = zona_auto()
+    if z:
+        f["pc"], f["zpb"] = z
+    return f
 
 
 def frac_pausa(pc=None, pb=None):
@@ -256,14 +312,14 @@ def _t_de_T(T, D, pausa, pc=None, pb=None):
     m = frac_pausa(pc, pb) * D
     if T <= m:
         return pos_cruce(T / D, pc, pb)
-    if T <= m + PAUSA:
+    if T <= m + pausa_s():
         return pausa_pos()
-    return pos_cruce((T - PAUSA) / D, pc, pb)
+    return pos_cruce((T - pausa_s()) / D, pc, pb)
 
 
 def _forma1(D, pausa, compas, S, E, vs, ve, be, zona):
     """Diseña las rampas para un fundido de D segundos (+ la pausa). Devuelve el dict con los parámetros y su explicación."""
-    total = D + (PAUSA if pausa else 0.0)
+    total = D + (pausa_s() if pausa else 0.0)
     zpc, zpb = zona if zona else (None, None)
     n = min(len(vs), int(total / PASO) + 1)
     vs, ve, be = vs[:n], ve[:n], be[:n]
@@ -305,7 +361,7 @@ def _forma1(D, pausa, compas, S, E, vs, ve, be, zona):
     # --- bajo: una línea de compás del que sale, de preferencia en la pausa del medio y al inicio de una frase ---
     T_s, idx_s = _compases_en(S.get("db"), S["pos"], S["rate"], total)
     p0 = frac_pausa(zpc, zpb) * D
-    p1 = p0 + (PAUSA if pausa else 0.0)
+    p1 = p0 + (pausa_s() if pausa else 0.0)
     centro = 0.5 * (p0 + p1)
     mejor = None
     primera_en_pausa = True
@@ -467,7 +523,7 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     if choque and ADAPTA_DUR >= 0.5:                              # tonalidad o tempo que chocan: se pasa más rápido de un tema al otro
         n = max(4, int(round(n * 0.75)))
     total = n * compas                                            # el tiempo estipulado INCLUYE la pausa
-    pa_s = PAUSA if pausa else 0.0
+    pa_s = pausa_s() if pausa else 0.0
     while resta is not None and n > 2 and total > resta - 1.0:
         n -= 1; total = n * compas
     if resta is not None and total > resta - 1.0:                  # no entra ni con 2 compases: lo que quede, sin pausa
@@ -484,8 +540,8 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
             "conflicto": 0.0, "choque_ini": 0.0, "fin_voz_a": None,
             "pc": None if pc is None else float(pc), "zpb": None if zpb is None else float(zpb),
-            "dur": float(D), "pausa": bool(pausa), "n": int(n), "estrategia": "manual",
-            "nombre": (f"Como el manual · {n} compases · {D + pa_s:.0f} s" if n else f"Como el manual · corta · {D:.0f} s") + (f" (con pausa de {PAUSA:g} s)" if pausa else ""),
+            "dur": float(D), "pausa": bool(pausa), "pausa_s": float(pa_s), "n": int(n), "estrategia": "manual",
+            "nombre": (f"Como el manual · {n} compases · {D + pa_s:.0f} s" if n else f"Como el manual · corta · {D:.0f} s") + (f" (con pausa de {pausa_s():g} s)" if pausa else ""),
             "razon": razon}
 
 
@@ -497,7 +553,8 @@ def disenar(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     Devuelve dict(dur, pausa, n, pa, fa, pb, rb, ps, gamma, nombre, razon).
     `dur` es el fundido (lo que recorre el crossfader); si `pausa` es True se le suman 3 s al 50 %."""
     if ESTRATEGIA >= 1.5 and forma and forma.get("dur"):
-        return disenar_manual(sale, entra, compat, dif_tempo, forma)
+        with contexto(True):                                      # el Auto «como mi manual» usa su propia pausa y su propio ritmo
+            return disenar_manual(sale, entra, compat, dif_tempo, forma)
     if ESTRATEGIA >= 0.5:
         return disenar_pro(sale, entra, compat, dif_tempo, forma)
     bpm = float(sale.get("bpm", 0) or 0) * float(sale.get("rate", 1.0) or 1.0)

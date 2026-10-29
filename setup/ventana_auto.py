@@ -72,6 +72,8 @@ class AutomaticoMixin:
         except Exception:
             dif = 0.0
         forma = None
+        if cruce_auto.ESTRATEGIA >= 1.5:                  # Auto «como mi manual»: tiene su propia forma y su propio ritmo en ⚙ Ajustes (separados del manual)
+            return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif, forma=cruce_auto.forma_auto(self.spin_mix.value()))
         try:                                              # la forma de los deslizadores "Forma de cruce A/B" (lo que se afina a mano) también vale en el Auto Pro
             forma = {"pa": self.punto_a, "pb": self.punto_b, "rb": self.rampa_b, "ps": self.punto_s, "gamma": self.gamma_a,
                      "fa": (None if self.fin_a >= 0.995 else self.fin_a), "dur": float(self.spin_mix.value())}
@@ -91,7 +93,7 @@ class AutomaticoMixin:
             return c[2]
         try:
             pl = self._disenar_cruce_auto(sale, entra)
-            dur = float(pl["dur"]) + (cruce_auto.PAUSA if pl.get("pausa", True) else 0.0)
+            dur = float(pl["dur"]) + (float(pl.get("pausa_s", cruce_auto.PAUSA)) if pl.get("pausa", True) else 0.0)
         except Exception:
             dur = 16.0
         self._dur_auto_cache = ((sale.path, entra.path), ahora, dur)
