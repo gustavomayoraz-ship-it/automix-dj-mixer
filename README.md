@@ -37,7 +37,7 @@ AutoMix no solo cambia de tema: **escucha cada par de canciones y decide cómo m
 ## Instalación
 
 ### Windows, fácil (no necesita Python)
-1. Bajá [`instalador/AutoMix-Setup.exe`](instalador/AutoMix-Setup.exe) (botón de descarga en esa página).
+1. Bajá [`AutoMix-Setup.exe`](https://github.com/gustavomayoraz/AutoMix_DJ/releases/latest/download/AutoMix-Setup.exe) (descarga directa de la última versión; todas están en [Releases](https://github.com/gustavomayoraz/AutoMix_DJ/releases)).
 2. Hacé doble clic. Baja solo todo lo necesario (Python 3.14 propio y las librerías, unos 600 MB a 1 GB la primera vez) y abre AutoMix.
 3. Después se abre desde el acceso directo del Escritorio. Se desinstala desde *Aplicaciones y características*.
 
