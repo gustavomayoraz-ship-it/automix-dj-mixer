@@ -29,6 +29,7 @@ class BarraProgresoConMarca(QWidget):
         self._arrastrando = False
         self._arrastrando_marca = False
         self.setMouseTracking(True)
+        self.setToolTip("Clic izquierdo: mueve la marca de auto-enganche\nClic derecho: restablece la marca")
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def set_progreso(self, p, seg=0.0, dur=0.0):
@@ -147,6 +148,10 @@ class BarraProgresoConMarca(QWidget):
         if ev.button() == Qt.MouseButton.LeftButton:
             self._arrastrando = True
             self._set_marca_desde_x(ev.position().x())
+        elif ev.button() == Qt.MouseButton.RightButton:        # clic derecho: la marca vuelve a su posición por defecto
+            self.marca = DEF_MARCA
+            self.marca_cambiada.emit(DEF_MARCA)
+            self.update()
 
     def mouseMoveEvent(self, ev):
         if self._arrastrando:
@@ -154,11 +159,6 @@ class BarraProgresoConMarca(QWidget):
 
     def mouseReleaseEvent(self, ev):
         self._arrastrando = False
-
-    def mouseDoubleClickEvent(self, ev):
-        self.marca = DEF_MARCA                  # la marca nunca se borra: vuelve a su posición por defecto
-        self.marca_cambiada.emit(DEF_MARCA)
-        self.update()
 
     def _set_marca_desde_x(self, x):
         f = self._frac_de_x(x)

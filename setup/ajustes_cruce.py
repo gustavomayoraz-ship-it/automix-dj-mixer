@@ -70,16 +70,6 @@ GRUPOS = [
         ("ADAPTA_DUR", "Acortar si chocan tonalidad o tempo", 0, 1, 1, "{:.0f}",
          "1 = en el Auto «como mi manual», el fundido dura ¾ si la tonalidad o el tempo de los dos temas chocan (se pasa más rápido de uno al otro).\n0 = siempre el mismo largo."),
     ]),
-    ("🌫 Mezclar en un break (en prueba)", [
-        ("BREAK_ACTIVO", "Mezclar en un break del tema que suena", 0, 1, 1, "{:.0f}",
-         "1 = antes de la marca roja se vigila el tema que suena; si entra en un «break» (varios compases en que baja la energía, como el valle de la onda) se\nmezcla ahí, con el tema que entra emparejándose. Si no aparece ninguno, la mezcla arranca en la marca como siempre. 0 = solo la marca."),
-        ("BREAK_VENTANA", "Vigilar desde (% del tema antes de la marca)", 1, 40, 100, "{:.0%}",
-         "Cuánto antes de la marca se empieza a buscar el break, en % de la duración del tema (así sirve para temas de 2 o de 4 minutos).\nEj.: marca en 60 % y 15 % → se busca entre el 45 % y el 60 %."),
-        ("BREAK_NIVEL", "Qué tan bajo es un break", 30, 80, 100, "{:.0%}",
-         "Hay break si lo que va a sonar (de la línea blanca a la amarilla) tiene menos energía que este % de lo que sonó en los últimos 10 s. Más bajo = solo huecos muy marcados; más alto = detecta también bajones suaves."),
-        ("BREAK_SEG", "Duración mínima del break (segundos)", 5, 80, 10, "{:.1f} s",
-         "El tramo desde la línea blanca (ahora) hasta la línea amarilla tiene que estar por debajo de las líneas rojas para valer como break. Más corto = reacciona a valles breves (más falsos disparos); más largo = solo breaks largos."),
-    ]),
 ]
 
 

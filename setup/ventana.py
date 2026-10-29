@@ -375,18 +375,16 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.barra_prog.marca_cambiada.connect(self._marca_cambiada)
         self.barra_prog.marca_cruzada.connect(self._marca_cruzada)
         bl.addWidget(self.barra_prog, stretch=1)
-        self.lbl_marca = QLabel()
-        self.lbl_marca.setMinimumWidth(190)
-        self.lbl_marca.setStyleSheet(f"color:{TEMA['suave']}; font-size:11px;")
-        self._actualizar_lbl_marca()
-        bl.addWidget(self.lbl_marca)
         self.chk_break = QCheckBox("🌫 Mezclar\nen break")                 # atajo al ajuste «Detectar breaks» (⚙): se enciende/apaga sin abrir los ajustes
-        self.chk_break.setToolTip("Si el tema que suena entra en un break (energía baja) antes de la marca, se mezcla ahí sin esperar a la marca.\nEs el mismo ajuste de ⚙ → Break; los detalles (cuánto, qué tan bajo, desde dónde) se afinan allá.")
+        self.chk_break.setToolTip("Si el tema que suena entra en un break (energía baja) antes de la marca, se mezcla ahí sin esperar a la marca.\nLos detalles (desde dónde, qué tan bajo, cuánto dura) se afinan en la tarjeta 🌫 Break de la derecha.")
         self.chk_break.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.chk_break.setChecked(cruce_auto.BREAK_ACTIVO >= 0.5)
         self.chk_break.toggled.connect(self._break_tilde)
         bl.addWidget(self.chk_break)
-        self._col_central.insertWidget(1, barra_box)        # el Auto-enganche va justo debajo de los decks y las tarjetas (en el hueco de la columna central), al lado del panel de cruce
+        fila_barra = QHBoxLayout(); fila_barra.setSpacing(8); fila_barra.setContentsMargins(0, 0, 0, 0)
+        fila_barra.addWidget(barra_box, 1)
+        fila_barra.addWidget(self._crear_break())              # 🌫 Break: los tres deslizadores del detector, a la derecha de la barra
+        self._col_central.insertLayout(1, fila_barra)        # el Auto-enganche va justo debajo de los decks y las tarjetas (en el hueco de la columna central), al lado del panel de cruce
 
         zoom_row = QHBoxLayout()
         zoom_row.addWidget(QLabel("Zoom (px/s):"))

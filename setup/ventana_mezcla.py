@@ -401,6 +401,46 @@ class MezclaMixin:
     def _marca_cruzada(self, f):
         pass
 
+    def _crear_break(self):
+        """Tarjeta 🌫 Break (a la derecha de la barra del Auto-enganche): los tres deslizadores del detector de breaks."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QSlider
+        from setup.widgets import qss_marco
+        from setup.tema import TEMA
+        marco = QGroupBox("🌫 Break")
+        marco.setObjectName("marcoBreak")
+        marco.setStyleSheet(qss_marco("QGroupBox#marcoBreak", TEMA["ambar"]) + " QGroupBox { padding-top:0px; }")
+        marco.setFixedHeight(92); marco.setFixedWidth(210)
+        g = QGridLayout(marco); g.setContentsMargins(8, 12, 8, 4); g.setHorizontalSpacing(5); g.setVerticalSpacing(1)
+        filas = (("BREAK_VENTANA", "Desde", 1, 40, 100, "{:.0%}",
+                  "Vigilar desde: cuánto antes de la marca roja se empieza a buscar el break (% de la duración del tema)."),
+                 ("BREAK_NIVEL", "Bajo", 30, 80, 100, "{:.0%}",
+                  "Qué tan bajo: hay break si lo que va a sonar (de la línea blanca a la amarilla) tiene menos energía que este % de lo que sonó en los últimos 10 s.\nMás bajo = solo huecos marcados; más alto = detecta también bajones suaves."),
+                 ("BREAK_SEG", "Dura", 5, 80, 10, "{:.1f} s",
+                  "Duración mínima del break: distancia de la línea blanca a la amarilla del timeline. Más corto = reacciona a valles breves (más falsos disparos)."))
+        self._sl_break = {}
+        for r, (k, txt, lo, hi, div, fmt, tip) in enumerate(filas):
+            lb = QLabel(txt); lb.setToolTip(tip); lb.setStyleSheet("font-size:11px;")
+            sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setToolTip(tip)
+            sl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            sl.setValue(int(round(getattr(cruce_auto, k) * div)))
+            val = QLabel(fmt.format(sl.value() / div)); val.setFixedWidth(40); val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            val.setStyleSheet("font-size:11px;")
+            sl.valueChanged.connect(lambda x, k=k, div=div, fmt=fmt, val=val: self._break_slider(k, x, div, fmt, val))
+            g.addWidget(lb, r, 0); g.addWidget(sl, r, 1); g.addWidget(val, r, 2)
+            self._sl_break[k] = sl
+        g.setColumnStretch(1, 1)
+        self.marco_break = marco
+        return marco
+
+    def _break_slider(self, k, x, div, fmt, val):
+        """Deslizador de la tarjeta 🌫 Break: aplica el valor, lo guarda y repinta la barra (línea de «Desde») y el timeline (líneas roja y amarilla)."""
+        from setup import ajustes_cruce
+        val.setText(fmt.format(x / div))
+        cruce_auto.aplicar({k: x / div})
+        ajustes_cruce.guardar()
+        self.barra_prog.update(); self.timeline.redraw()
+
     def _break_tilde(self, on):
         """Tilde del frente «Mezclar en break»: enciende/apaga BREAK_ACTIVO, lo guarda y refresca la barra y la línea de tiempo."""
         from setup import ajustes_cruce
