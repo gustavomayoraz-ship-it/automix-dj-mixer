@@ -115,6 +115,7 @@ class MezclaMixin:
         self._pc_mix = None                                       # dónde se cruzan las dos líneas (para frenar ahí el crossfader)
         if self._plan:
             pl = self._plan
+            pl["rutas"] = [r for r in (sale_d.path, entra.path) if r]      # los dos temas de este cruce (el 👍 del cruce los marca)
             self._ultimo_plan = pl
             duration_s = float(pl["dur"])
             self._nivelar_entrada(sale_d, entra, duration_s + float(pl.get("pausa_s", 0.0)))

@@ -4,6 +4,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from setup import aprendizaje, cruce_auto
+from setup.estadisticas import EST
 from setup.ajustes import AJ, FUENTE_BOOST
 from setup.config import DEF_FIN_A, DEF_GAMMA_A, DEF_PUNTO_A, DEF_PUNTO_B, DEF_PUNTO_S, DEF_RAMPA_B, perfil_cruce_ab, perfil_cruce_bandas
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
@@ -257,7 +258,12 @@ class PanelCruce(QFrame):
             motivo = acc[elegido]
         if aprendizaje.registrar(ul, voto, motivo):
             ul["_votado"] = True
-            self.v._set_status(("👍" if voto > 0 else "👎") + f" Anotado: el Auto lo tiene en cuenta · {aprendizaje.resumen()}")
+            extra = ""
+            if voto > 0 and ul.get("rutas"):                       # enganche perfecto: los dos temas quedan con 👍 en la lista
+                EST.poner_like(ul["rutas"], True)
+                self.v.biblioteca.refrescar_estadisticas()
+                extra = f" · 👍 en {len(ul['rutas'])} temas"
+            self.v._set_status(("👍" if voto > 0 else "👎") + f" Anotado: el Auto lo tiene en cuenta · {aprendizaje.resumen()}" + extra)
         else:
             self.v._set_status("🗳 No se pudo guardar el voto")
 
