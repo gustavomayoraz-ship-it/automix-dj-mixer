@@ -1,8 +1,9 @@
 """AutoMix — línea de tiempo con los dos decks."""
 import bisect
 import numpy as np
-from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView
+import os
+from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient, QPainter, QPen, QPolygonF
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView
 from PySide6.QtCore import QPointF, Qt
 from setup import cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST, fmt_time
@@ -151,6 +152,9 @@ class UnifiedTimeline(QGraphicsView):
                             downbeat_c=QColor(255, 184, 46, 210), core=QColor(130, 24, 90, 215),
                             delta_preview=delta_b)
 
+        self._dibujar_nombre(self.deck_a, W, 0, mid)              # nombre del tema de cada canal, centrado en la mitad izquierda de su carril
+        self._dibujar_nombre(self.deck_b, W, mid, H)
+
         center_x = W / 2.0
         for ancho_ph, alfa_ph in ((10, 28), (5, 70)):
             gl = QGraphicsLineItem(center_x, 0, center_x, H)
@@ -184,6 +188,33 @@ class UnifiedTimeline(QGraphicsView):
             self.viewport().setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
         else:
             self.viewport().setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
+    def _dibujar_nombre(self, deck, W, y0, y1):
+        """Nombre del tema cargado en letras blancas (12 pt), sin fondo y con sombra fina, pegado al borde izquierdo y centrado en altura dentro de su carril (entre y0 e y1)."""
+        ruta = getattr(deck, "path", None)
+        if not ruta:
+            return
+        nombre = os.path.splitext(os.path.basename(ruta))[0]
+        f = QFont(); f.setPointSizeF(max(9.0, 12.0 * AJ.escala)); f.setBold(True)
+        ancho_max = max(40.0, W / 2.0 - 30.0)
+        fm = QFontMetrics(f)
+        lineas = [nombre]
+        if fm.horizontalAdvance(nombre) > ancho_max and (y1 - y0) >= 2.4 * fm.height():      # no entra en una línea: se parte en dos (si el carril tiene alto)
+            palabras = nombre.split(" "); l1 = ""
+            for k, pal in enumerate(palabras):
+                prueba = (l1 + " " + pal).strip()
+                if fm.horizontalAdvance(prueba) > ancho_max and l1:
+                    lineas = [l1, " ".join(palabras[k:])]
+                    break
+                l1 = prueba
+        lineas = [fm.elidedText(l, Qt.TextElideMode.ElideRight, int(ancho_max)) for l in lineas[:2]]       # lo que todavía no entre se corta con «…»
+        t = QGraphicsSimpleTextItem("\n".join(lineas))
+        t.setFont(f); t.setBrush(QBrush(QColor(255, 255, 255)))
+        sombra = QGraphicsDropShadowEffect(); sombra.setBlurRadius(5); sombra.setOffset(1, 1); sombra.setColor(QColor(0, 0, 0, 255))
+        t.setGraphicsEffect(sombra)                              # sin fondo: una sombra negra fina mantiene legible la letra sobre la onda
+        r = t.boundingRect()
+        t.setPos(14, y0 + (y1 - y0 - r.height()) / 2.0)
+        self.scene_.addItem(t)
 
     def _draw_deck(self, analysis, W, top, bottom, anchor,
                    fill, beat_c, kick_c, downbeat_c, core=None, delta_preview=0.0):
