@@ -350,8 +350,10 @@ def punto_cruce(pa, fa, pb, rb, gamma):
 
 
 def pausa_pos():
-    """Posición del crossfader (0..1) donde se queda la pausa, siempre entre 0.25 y 0.75 (0.5 = en el medio)."""
-    return min(0.75, max(0.25, float(AUTO_PAUSA_POS if en_auto() else PAUSA_POS)))
+    """Posición del crossfader (0..1) donde se queda la pausa (0.5 = en el medio): entre 0.25 y 0.75 en el Auto; entre 0.10 y 0.90 en el manual."""
+    if en_auto():
+        return min(0.75, max(0.25, float(AUTO_PAUSA_POS)))
+    return min(0.90, max(0.10, float(PAUSA_POS)))
 
 
 def zona_auto():

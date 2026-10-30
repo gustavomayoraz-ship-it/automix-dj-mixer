@@ -302,7 +302,7 @@ class MezclaMixin:
         (la 1.ª línea es donde el mezclador pasa el bajo; la pausa termina en esa línea o en una posterior, la más cercana a lo configurado), así
         el resto del fundido sigue en el compás y no a media frase."""
         base = float(cruce_auto.pausa_s())
-        if cruce_auto.PAUSA_EN_LINEA < 0.5 or base < 0.5:
+        if not cruce_auto.en_auto() or cruce_auto.PAUSA_EN_LINEA < 0.5 or base < 0.5:      # el manual dura exactamente lo que se eligió; el ajuste a la línea de compás es solo del Auto
             return base
         try:
             sale = self.deck_a if getattr(self, "_cf_dir", "AB") == "AB" else self.deck_b

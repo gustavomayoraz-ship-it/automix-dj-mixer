@@ -66,7 +66,7 @@ GRUPOS = [
         ("ESPERA_FRASE", "Esperar a la frase (s máx., 0 = no)", 0, 30, 1, "{:.0f} s",
          "Al llegar a la marca roja del auto-enganche, la mezcla espera (como mucho este tiempo) al próximo inicio de frase (cada 8 compases)\ndel tema que sale, así arranca en el \"1\" de la frase. 0 = arranca justo en la marca. Solo si la grilla del tema es firme."),
         ("PAUSA_EN_LINEA", "Pausa del 50 % hasta la línea de compás", 0, 1, 1, "{:.0f}",
-         "1 = la pausa del medio termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración de abajo.\n0 = dura siempre lo mismo. Vale en Auto y en Manual."),
+         "1 = la pausa del medio del AUTO termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración configurada.\n0 = dura siempre lo mismo. Solo vale en el Auto: la pausa del cruce manual dura exactamente lo que se elige en el panel «Forma de cruce A/B»."),
         ("ADAPTA_DUR", "Acortar si chocan tonalidad o tempo", 0, 1, 1, "{:.0f}",
          "1 = en el Auto «como mi manual», el fundido dura ¾ si la tonalidad o el tempo de los dos temas chocan (se pasa más rápido de uno al otro).\n0 = siempre el mismo largo."),
     ]),
@@ -845,11 +845,6 @@ class AjustesCruce(QDialog):
         self.panel_nuevo = PanelCruceAuto(ventana, self)  # el panel nuevo (estrategia 2 «como mi manual»): configuración PROPIA del Auto
         self.vista_nueva = self.panel_nuevo.graf
         lay.addWidget(self.panel_nuevo)
-        self.btn_manual = QPushButton("🖐 Ritmo del cruce MANUAL (pausa y frenado del modo Manual) ▸")
-        self.btn_manual.setCheckable(True)
-        self.btn_manual.setToolTip("El cruce Auto de arriba tiene su propia configuración. Acá está la del modo Manual (el botón ✋ de la mezcla): no se mezclan.")
-        self.btn_manual.toggled.connect(lambda _x: self._visibles())
-        lay.addWidget(self.btn_manual)
         lay.addWidget(self._cont_viejo)
         cont = QWidget(); cl = QVBoxLayout(cont); cl.setContentsMargins(0, 0, 6, 0); cl.setSpacing(8)      # los grupos van en una zona con scroll: el formulario no pasa del alto de la pantalla
         self._sl = {}
@@ -968,6 +963,10 @@ class AjustesCruce(QDialog):
             sl.blockSignals(True); sl.setValue(int(round(getattr(cruce_auto, k) * div))); sl.blockSignals(False)
             val.setText(fmt.format(sl.value() / div))
         self._fino_sincronizar()
+        try:
+            self.v.panel_cruce.refrescar_pausa()                # «Pausa en» / «Pausa dura» del panel del frente
+        except AttributeError:
+            pass
         for nombre in ("vista", "vista_nueva", "vista_inc"):
             v = getattr(self, nombre, None)
             if v is not None:
@@ -996,9 +995,8 @@ class AjustesCruce(QDialog):
             caja.setVisible((not claves) or any(SOLO_ESTRATEGIA.get(k, e) == e for k in claves))
         self._fino_sincronizar()
         nuevo = (e == 2)                                  # solo «como mi manual» usa el panel nuevo
-        self.panel_nuevo.setVisible(nuevo); self.btn_manual.setVisible(nuevo)
-        self._cont_viejo.setVisible((not nuevo) or self.btn_manual.isChecked())
-        self.btn_manual.setText("🖐 Ritmo del cruce MANUAL (pausa y frenado del modo Manual) " + ("▾" if self.btn_manual.isChecked() else "▸"))
+        self.panel_nuevo.setVisible(nuevo)
+        self._cont_viejo.setVisible(not nuevo)               # el ritmo del cruce MANUAL ya no se configura acá: «Pausa en» y «Pausa dura» están en el panel «Forma de cruce A/B»
         self._info.setText("Esta es la configuración PROPIA del cruce Auto (no cambia el cruce manual). Así se arma: la curva celeste es el tema que suena y la rosa el que entra. Arrastrá el punto naranja para decir dónde se detiene, "
                            "el borde de la banda naranja para decir cuánto se queda (0 a 10 s), la marca roja para «Acelera hasta» y la amarilla para el final. "
                            "Los deslizadores de abajo hacen lo mismo. Todo se guarda solo y vale desde la próxima mezcla." if nuevo else self._texto_info_viejo)
@@ -1058,6 +1056,10 @@ class AjustesCruce(QDialog):
         self._actualizar_barra()
         self.vista.update()
         self.panel_nuevo.sincronizar()
+        try:
+            self.v.panel_cruce.refrescar_pausa()
+        except AttributeError:
+            pass
         if hasattr(self, "vista_inc"):
             self._inc_sincronizar()
 

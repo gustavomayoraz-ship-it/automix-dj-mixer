@@ -1,7 +1,7 @@
 """AutoMix — gráfico y panel de la forma de cruce."""
 import math
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from setup import aprendizaje, cruce_auto
 from setup.ajustes import AJ, FUENTE_BOOST
@@ -15,13 +15,14 @@ class GraficoCruce(QWidget):
         super().__init__()
         self.punto_a = DEF_PUNTO_A; self.punto_b = DEF_PUNTO_B; self.avance = None
         self.punto_s = DEF_PUNTO_S; self.bandas = False; self.simple = False
-        self.rb = None; self.gamma = 1.0; self.etiqueta = None; self.vacio = None
+        self.rb = None; self.gamma = 1.0; self.etiqueta = None; self.vacio = None; self.pausa = None
         self.setMinimumHeight(62)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def actualizar(self, pa, pb, avance=None, ps=None, bandas=False, fa=None, simple=False, rb=None, gamma=1.0,
-                   etiqueta=None, vacio=None, inc=None):
+                   etiqueta=None, vacio=None, inc=None, pausa=None):
         self.rb, self.gamma, self.etiqueta, self.vacio = rb, gamma, etiqueta, vacio
+        self.pausa = pausa                                                 # (posición 0..1, segundos) de la pausa del cruce manual; None = no se dibuja
         self.inc = inc                                                     # (cuándo entra B, cuánto tarda en subir) en fracción del fundido: el fundido de temas incompatibles
         self.simple = bool(simple)
         self.punto_a, self.punto_b, self.avance = pa, pb, avance
@@ -79,6 +80,11 @@ class GraficoCruce(QWidget):
             p.setPen(QPen(cb.lighter(150), 2, Qt.PenStyle.DotLine)); p.drawPolyline(QPolygonF(lb))
             xs = x0 + (x1 - x0) * max(0.0, min(1.0, self.punto_s))          # dónde se traspasa el bajo
             p.setPen(QPen(QColor(TEMA["verde"]), 1, Qt.PenStyle.DashLine)); p.drawLine(QPointF(xs, yt), QPointF(xs, yb))
+        if self.pausa is not None:                       # línea vertical de la pausa: cuando la línea blanca llega acá, el cruce se queda quieto ese tiempo
+            xp = x0 + (x1 - x0) * max(0.0, min(1.0, self.pausa[0]))
+            am = QColor(TEMA["ambar"])
+            p.setPen(QPen(QColor(0, 0, 0, 170), 3.2)); p.drawLine(QPointF(xp, yt), QPointF(xp, yb))
+            p.setPen(QPen(am, 1.6, Qt.PenStyle.DashLine)); p.drawLine(QPointF(xp, yt), QPointF(xp, yb))
         curva(pa, ca); curva(pb, cb)
         if self.simple or self.etiqueta:
             fs = QFont(self.font()); fs.setPointSizeF(max(7.0, 7.5 * AJ.escala * FUENTE_BOOST)); fs.setBold(True); p.setFont(fs)
@@ -141,6 +147,18 @@ class PanelCruce(QFrame):
         self.sl_g, self.lv_g = fila_g("Forma de A:", COLOR_DECK_A, 10, 25, round(ventana.gamma_a * 10),
                                       "Forma de la caída de A. 1,0 = la curva de siempre · más alto = A achica sus medios y agudos antes (útil cuando las voces se pisan).")
         self.sl_s, self.lv_s = fila("Bajo (cambia):", TEMA["verde"], ventana.punto_s, "Momento de la mezcla en que el bajo pasa del tema que sale al que entra (en la línea de compás más próxima). 0 % = el nuevo trae su bajo desde el principio · 95 % = el viejo mantiene el bajo casi hasta el final.")
+        self.sl_pp, self.lv_pp = fila_g("Pausa en:", TEMA["ambar"], 10, 90, round(cruce_auto.PAUSA_POS * 100),
+                                        "Punto del cruce donde se frena: cuando la línea blanca del gráfico llega a la línea ámbar, el cruce se queda quieto (los dos temas suenan como en ese punto) el tiempo de «Pausa dura».")
+        r_pd = QHBoxLayout()
+        l_pd = QLabel("Pausa dura:"); l_pd.setStyleSheet(f"color:{TEMA['ambar']}; font-weight:bold;")
+        self.cb_pd = QComboBox()
+        for n in range(10):
+            self.cb_pd.addItem(f"{n} s" if n else "Sin pausa", n)
+        self.cb_pd.setCurrentIndex(max(0, min(9, int(round(cruce_auto.PAUSA)))))
+        self.cb_pd.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        tip_pd = "Cuántos segundos se queda el cruce en la línea ámbar (0 = no se frena)."
+        l_pd.setToolTip(tip_pd); self.cb_pd.setToolTip(tip_pd)
+        r_pd.addWidget(l_pd); r_pd.addWidget(self.cb_pd, 1); lay.addLayout(r_pd)
         self.chk_bandas = QCheckBox("🎛 Por bandas")
         self.chk_bandas.setToolTip("Medios y agudos se cruzan con las curvas de arriba; el BAJO (bombo y bajo, <150 Hz) es de uno solo a la vez\ny se traspasa en la línea del compás, sin cortes ni empaste. Sin tilde: el cruce clásico por volumen.")
         self.chk_bandas.setChecked(ventana.cruce_bandas)
@@ -187,14 +205,38 @@ class PanelCruce(QFrame):
         for sl in (self.sl_rb, self.sl_fa, self.sl_g):
             sl.valueChanged.connect(self._cambio)
         self.chk.toggled.connect(self._cambio)
+        self.sl_pp.valueChanged.connect(self._cambio_pausa); self.cb_pd.currentIndexChanged.connect(self._cambio_pausa)
         self._timer = QTimer(self); self._timer.timeout.connect(self._refrescar); self._timer.start(50)
         self._textos()
         self._pintar_modo()
+
+    def _cambio_pausa(self, *_):
+        """«Pausa en» (posición) y «Pausa dura» (segundos) del cruce manual: se aplican, se guardan y se repinta el gráfico."""
+        self._textos()
+        vals = {"PAUSA_POS": self.sl_pp.value() / 100.0, "PAUSA": float(self.cb_pd.currentData() or 0)}
+        d = getattr(self.v, "_dlg_ajc", None)
+        if d is not None:
+            d.auto_set(vals)                                       # (aplica, guarda y deja al día lo que muestre ⚙ Ajustes)
+        else:
+            from setup import ajustes_cruce
+            cruce_auto.aplicar(vals); ajustes_cruce.guardar()
+        self._refrescar()
+
+    def refrescar_pausa(self):
+        """Deja «Pausa en» y «Pausa dura» con los valores de ahora (los cambió ⚙ Ajustes o «Valores por defecto»)."""
+        for w in (self.sl_pp, self.cb_pd):
+            w.blockSignals(True)
+        self.sl_pp.setValue(int(round(cruce_auto.PAUSA_POS * 100)))
+        self.cb_pd.setCurrentIndex(max(0, min(9, int(round(cruce_auto.PAUSA)))))
+        for w in (self.sl_pp, self.cb_pd):
+            w.blockSignals(False)
+        self._textos(); self._refrescar()
 
     def _textos(self):
         self.lv_a.setText(f"{self.sl_a.value()}%"); self.lv_b.setText(f"{self.sl_b.value()}%"); self.lv_s.setText(f"{self.sl_s.value()}%")
         self.lv_rb.setText(f"{self.sl_rb.value()}%"); self.lv_fa.setText(f"{self.sl_fa.value()}%")
         self.lv_g.setText(f"{self.sl_g.value() / 10.0:.1f}")
+        self.lv_pp.setText(f"{self.sl_pp.value()}%")
 
     def _votar(self, voto):
         """👍 / 👎 al último cruce que hizo el Auto «como mi manual»: lo guarda y el Auto aprende para los pares de temas parecidos."""
@@ -242,6 +284,7 @@ class PanelCruce(QFrame):
         for w in (self.sl_rb, self.sl_fa, self.sl_g):                    # estos tres solo existen "por bandas"
             w.setEnabled(not auto and self.chk_bandas.isChecked())
         self.sl_s.setEnabled(self.chk_bandas.isChecked() and not auto)
+        self.sl_pp.setEnabled(not auto); self.cb_pd.setEnabled(not auto)      # la pausa del Auto se maneja en ⚙ Ajustes
 
     def _modo_cambio(self, auto):
         if auto:                                    # el Auto trabaja con la forma de cruce y por bandas
@@ -254,6 +297,7 @@ class PanelCruce(QFrame):
     def _defecto(self):
         self.sl_a.setValue(int(round(DEF_PUNTO_A * 100))); self.sl_b.setValue(int(round(DEF_PUNTO_B * 100))); self.sl_s.setValue(int(round(DEF_PUNTO_S * 100)))
         self.sl_rb.setValue(int(round(DEF_RAMPA_B * 100))); self.sl_fa.setValue(int(round(DEF_FIN_A * 100))); self.sl_g.setValue(int(round(DEF_GAMMA_A * 10)))
+        self.cb_pd.setCurrentIndex(3); self.sl_pp.setValue(50)    # pausa: 3 s en el 50 %
         self.chk.setChecked(True)               # forma de cruce A/B activada
         self.chk_bandas.setChecked(True)        # por bandas
         self.btn_modo.setChecked(False)         # cruce manual
@@ -333,5 +377,6 @@ class PanelCruce(QFrame):
             fa = self.sl_fa.value() / 100.0
             self.graf.actualizar(self.sl_a.value() / 100.0, self.sl_b.value() / 100.0, t,
                                  self.sl_s.value() / 100.0, self.chk_bandas.isChecked() and self.chk.isChecked(),
-                                 None if fa >= 0.995 else fa, rb=self.sl_rb.value() / 100.0, gamma=self.sl_g.value() / 10.0)
+                                 None if fa >= 0.995 else fa, rb=self.sl_rb.value() / 100.0, gamma=self.sl_g.value() / 10.0,
+                                 pausa=(self.sl_pp.value() / 100.0, float(self.cb_pd.currentData() or 0)) if self.cb_pd.currentData() else None)
         self.lbl_dur.setText(f"⏱ Mezcla: {self.v.spin_mix.value()} s")
