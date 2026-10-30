@@ -136,7 +136,14 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_danados.setToolTip("⚠ Historial de temas dañados: archivos que no se pudieron cargar o analizar (la carga automática y el Random los saltean)")
         self.btn_danados.clicked.connect(self._abrir_danados)
         self._actualizar_btn_danados()
+        self.btn_estadisticas = QPushButton("📊")
+        self.btn_estadisticas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_estadisticas.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        self.btn_estadisticas.setToolTip("📊 Estadísticas: reproducciones, estrellas (automáticas, según cuánto suena cada tema) y los temas con 👍.\n"
+                                         "El 👍 se marca con clic derecho sobre un tema de la lista.")
+        self.btn_estadisticas.clicked.connect(self._abrir_estadisticas)
         fila_orden = QHBoxLayout(); fila_orden.addWidget(self.btn_random); fila_orden.addWidget(self.btn_agrupar); fila_orden.addWidget(self.btn_danados)
+        fila_orden.addWidget(self.btn_estadisticas)
         lib_lay.addLayout(fila_orden)
         # 🎼 Armónico y 🥁 En frase se quitaron de la pantalla: quedan siempre apagados
         # (el siguiente tema es el que sigue en la lista, ordenada por BPM, y la mezcla automática arranca al llegar a la marca).

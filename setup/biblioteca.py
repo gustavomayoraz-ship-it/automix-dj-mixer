@@ -16,6 +16,7 @@ from setup.ajustes import FUENTE_BOOST, SUPPORTED
 from setup.analisis import compat_armonica
 from setup.base import CACHE_DIR, log
 from setup import indice
+from setup.estadisticas import EST
 from setup.tema import COLOR_DECK_A, COLOR_DECK_B, TEMA
 
 
@@ -50,17 +51,29 @@ class _DelegadoFondo(QStyledItemDelegate):
             painter.drawRoundedRect(option.rect.adjusted(1, 1, -1, -1), 5, 5)
             painter.restore()
         der = index.data(Qt.ItemDataRole.UserRole + 3)           # texto a la derecha (duración; en los títulos "cantidad / duración total")
-        if der:
+        n_est = index.data(Qt.ItemDataRole.UserRole + 5) or 0    # estrellas (1 a 5, automáticas por reproducciones)
+        hay_like = bool(index.data(Qt.ItemDataRole.UserRole + 6))  # 👍 marcado a mano
+        if der or n_est or hay_like:
             opt = QStyleOptionViewItem(option)
             fm = QFontMetrics(opt.font)
-            w = fm.horizontalAdvance(der) + 12
-            opt.rect.setRight(opt.rect.right() - w)
+            w_der = (fm.horizontalAdvance(der) + 12) if der else 0
+            estrellas = "★" * int(n_est)
+            w_est = (fm.horizontalAdvance(estrellas) + 8) if estrellas else 0
+            w_like = (fm.horizontalAdvance("👍") + 8) if hay_like else 0
+            opt.rect.setRight(opt.rect.right() - w_der - w_est - w_like)
             super().paint(painter, opt, index)
             painter.save()
             fg = index.data(Qt.ItemDataRole.ForegroundRole)
             painter.setPen(fg.color() if fg is not None and fg != QBrush() else option.palette.text().color())
             painter.setFont(opt.font)
-            painter.drawText(option.rect.adjusted(0, 0, -8, 0), int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), der)
+            alin = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if der:
+                painter.drawText(option.rect.adjusted(0, 0, -8, 0), alin, der)
+            if estrellas:
+                painter.setPen(QColor("#ffd400"))                                   # estrellas amarillas
+                painter.drawText(option.rect.adjusted(0, 0, -(w_der + 8), 0), alin, estrellas)
+            if hay_like:
+                painter.drawText(option.rect.adjusted(0, 0, -(w_der + w_est + 8), 0), alin, "👍")
             painter.restore()
             return
         super().paint(painter, option, index)          # (antes decía `opt`, que solo existe si hay texto a la derecha: sin duración fallaba y la lista no se dibujaba)
@@ -116,6 +129,7 @@ def _carpeta_memo(ruta):
 class Biblioteca(QListWidget):
     aviso = Signal(str)        # mensaje para la barra de estado (p. ej. duplicados omitidos)
     cambio = Signal()
+    cambio_estadisticas = Signal()        # se marcó o quitó un 👍 desde la lista
     nuevos = Signal()          # se agregaron temas: hay que analizarlos
     carga_progreso = Signal(int, int)     # al abrir: (temas revisados, total) mientras la lista se va llenando
     primera_tanda = Signal()              # ya hay temas en la lista (los decks guardados pueden volver a cargarse)
@@ -434,6 +448,7 @@ class Biblioteca(QListWidget):
                     it.setText(nuevo)
                 d = self.duracion(it.data(Qt.ItemDataRole.UserRole))
                 it.setData(Qt.ItemDataRole.UserRole + 3, self._fmt_dur(d) if d else None)
+                self._poner_est(it, it.data(Qt.ItemDataRole.UserRole))
             for i in range(self.count()):                 # títulos de carpeta: ⏳ n si hay temas pendientes adentro
                 it = self.item(i)
                 if self._es_cab(it):
@@ -613,6 +628,28 @@ class Biblioteca(QListWidget):
             it.setText(nuevo)
         d = self.duracion(ruta)
         it.setData(Qt.ItemDataRole.UserRole + 3, self._fmt_dur(d) if d else None)
+        self._poner_est(it, ruta)
+
+    def _poner_est(self, it, ruta):
+        """Estrellas (automáticas) y 👍 (manual) del tema, para que el delegado las dibuje a la derecha."""
+        est, like = EST.estrellas(ruta), EST.like(ruta)
+        if (it.data(Qt.ItemDataRole.UserRole + 5) or 0) != est:
+            it.setData(Qt.ItemDataRole.UserRole + 5, est)
+        if bool(it.data(Qt.ItemDataRole.UserRole + 6)) != like:
+            it.setData(Qt.ItemDataRole.UserRole + 6, like)
+
+    def refrescar_estadisticas(self):
+        """Vuelve a poner las estrellas y los 👍 en toda la lista (después de contar una reproducción o marcar un 👍)."""
+        prev = self._cargando
+        self._cargando = True
+        try:
+            for i in range(self.count()):
+                it = self.item(i)
+                if not self._es_cab(it):
+                    self._poner_est(it, it.data(Qt.ItemDataRole.UserRole))
+        finally:
+            self._cargando = prev
+        self.viewport().update()
 
     def frase_ok(self, ruta):
         self.info(ruta)
@@ -843,9 +880,19 @@ class Biblioteca(QListWidget):
             n = sum(1 for i in range(self.count()) if not self._es_cab(self.item(i)) and self._carpeta(self.item(i).data(Qt.ItemDataRole.UserRole)) == c)
             acc = menu.addAction(f"🗑 Quitar la carpeta de la lista ({n} temas)")
         else:
-            n = len([x for x in self.selectedItems() if not self._es_cab(x)])
+            sel = [x.data(Qt.ItemDataRole.UserRole) for x in self.selectedItems() if not self._es_cab(x)]
+            n = len(sel)
+            todos_like = bool(sel) and all(EST.like(r) for r in sel)
+            acc_like = menu.addAction(("👍 Quitar el 👍" if todos_like else "👍 Me gusta (marcar)") + ("" if n <= 1 else f" ({n} temas)"))
             acc = menu.addAction("🗑 Quitar de la lista" if n <= 1 else f"🗑 Quitar de la lista ({n} temas)")
-        if menu.exec(self.viewport().mapToGlobal(pos)) is acc:
+        elegido = menu.exec(self.viewport().mapToGlobal(pos))
+        if elegido is None:
+            return
+        if not self._es_cab(it) and elegido is acc_like:
+            EST.poner_like(sel, not todos_like)
+            self.refrescar_estadisticas()
+            self.cambio_estadisticas.emit()
+        elif elegido is acc:
             self.quitar_seleccion()
 
     def limpiar(self):

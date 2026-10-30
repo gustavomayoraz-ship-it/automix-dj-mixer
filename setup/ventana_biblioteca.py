@@ -9,6 +9,7 @@ from setup.analizador_aparte import aparte_activo, lanzar_aparte
 from setup.base import log
 from setup.config import guardar_config, leer_config
 from setup.deck import Deck
+from setup.estadisticas import EST, Seguimiento
 from setup.dialogo_analisis import DialogoAnalisis
 from setup.hilos_analisis import AnalizadorBiblioteca
 
@@ -19,6 +20,25 @@ UMBRAL_MASIVO = 100        # a partir de esta cantidad de temas por analizar apa
 class BibliotecaMixin:
     """Biblioteca: análisis de los temas, orden, carga en los decks (parte de la ventana principal)."""
 
+
+    _seguimientos = None              # {'A': Seguimiento, 'B': Seguimiento}: cuánto sonó de verdad cada tema de los decks
+
+    def _contar_reproducciones(self):
+        """Cada tick: si un tema de un deck pasa el 50 % escuchado, suma una reproducción y la lista actualiza sus estrellas."""
+        if self._seguimientos is None:
+            self._seguimientos = {"A": Seguimiento(), "B": Seguimiento()}
+        for nombre, d in (("A", self.deck_a), ("B", self.deck_b)):
+            audio = d.audio
+            if audio is None or not d.path or not d.sr:
+                continue
+            if self._seguimientos[nombre].actualizar(d.path, d.playing, d.position_seconds(), len(audio) / d.sr):
+                n = EST.sumar(d.path)
+                log("estadisticas", f"{os.path.basename(d.path)}: {n} reproducciones")
+                self.biblioteca.refrescar_estadisticas()
+
+    def _abrir_estadisticas(self):
+        from setup.dialogo_estadisticas import DialogoEstadisticas
+        DialogoEstadisticas(self, self.biblioteca.refrescar_estadisticas).exec()
 
     _analizador_bib = None
     _fallidos = None

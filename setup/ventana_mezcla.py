@@ -648,6 +648,10 @@ class MezclaMixin:
         self.deck_b.tick()
         self._vigilar_cortes_audio()
         self._vigilar_salida()
+        try:
+            self._contar_reproducciones()
+        except Exception:
+            import traceback; traceback.print_exc()
         self._mb_actualizar_barras()
         try:
             self._animar_cruce()
