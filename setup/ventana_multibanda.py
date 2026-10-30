@@ -28,7 +28,7 @@ class MultibandaMixin:
         fila = QHBoxLayout()
         self.chk_mb = QCheckBox("Automática (recomendado)")
         self.chk_mb.setChecked(True)          # siempre arranca en automático
-        self.chk_mb.setToolTip("Tildada: todo se ajusta solo. Destildada: manual, vos movés Umbral, Ratio y Compensación de cada banda")
+        self.chk_mb.setToolTip("Tildada: todo se ajusta solo. Destildada: manual, vos movés la Compensación de cada banda (Umbral y Ratio siguen solos)")
         fila.addSpacing(12)
         fila.addWidget(QLabel("Intensidad"))
         self.sld_mb = QSlider(Qt.Orientation.Horizontal)
@@ -60,11 +60,11 @@ class MultibandaMixin:
         ayudas = (
             "NIVEL (solo se mira)\nCuánto suena esa banda ahora, en promedio. Lo mide el programa: no se regula.\n"
             "Sirve de referencia para ver dónde está el Umbral.",
-            "UMBRAL (en manual se regula)\nEs la altura a partir de la cual la banda empieza a comprimirse: lo que pasa de ese nivel se baja.\n"
+            "UMBRAL (lo calcula el programa, también en manual)\nEs la altura a partir de la cual la banda empieza a comprimirse: lo que pasa de ese nivel se baja.\n"
             "• Más bajo (ej. −40 dB): comprime casi todo, suena más parejo y 'apretado'.\n"
             "• Más alto (ej. −10 dB): comprime solo los picos fuertes, suena más natural.\n"
             "Si el Nivel queda muy por encima del Umbral, comprime mucho.",
-            "RATIO (en manual se regula)\nCuánto se baja lo que pasa del Umbral.\n"
+            "RATIO (lo calcula el programa, también en manual)\nCuánto se baja lo que pasa del Umbral.\n"
             "• 1:1 = nada.  2:1 = suave (por cada 2 dB que pasa, deja pasar 1).  4:1 = fuerte.  8:1 = casi un tope.\n"
             "Más ratio = más control de los picos, pero menos pegada y menos vida.",
             "REDUCCIÓN (solo se mira)\nCuántos dB está bajando la banda en este momento por la compresión.\n"
@@ -94,7 +94,7 @@ class MultibandaMixin:
                 sl.setStyleSheet(f"QSlider::sub-page:horizontal {{ background: {col_banda}; border-radius:4px; }} QSlider::handle:horizontal {{ border-color: {col_banda}; }}")
                 lbl = EtiquetaAncha([fmt(v) for v in range(mn, max(mx, rango_man[j]) + 1)], fmt(sl.value())); lbl.setStyleSheet(suave)
                 sl.valueChanged.connect(lambda v, l=lbl, f=fmt: l.setText(f(v)))
-                if j in (1, 2, 4):                      # Umbral, Ratio y Compensación: en manual los mueve el usuario acá mismo
+                if j == 4:                              # Compensación: en manual la mueve el usuario acá mismo (Umbral y Ratio siguen automáticos)
                     sl.valueChanged.connect(self._mb_manual_cambio)
                 g.addWidget(sl, 2 + i, 1 + 2 * pos_col[j]); g.addWidget(lbl, 2 + i, 2 + 2 * pos_col[j])
                 fila_m.append(sl)
@@ -229,30 +229,22 @@ class MultibandaMixin:
         self._set_status("⚙ Multibanda: ajustes por defecto (automática)")
 
     def _mb_modo_manual(self, manual):
-        """En manual, Umbral, Ratio y Compensación de la ventana de ajustes se mueven a mano; en automático son indicadores."""
+        """En manual solo la Compensación de cada banda se mueve a mano; Umbral y Ratio siguen automáticos. En automático todo son indicadores."""
         if manual == self._mb_manual:
             return
         self._mb_manual = manual
         self._mb_pintando = True
         try:
             for i, fila_d in enumerate(self.mb_man):
-                for col_i, (mn, mx), val in ((1, (-60, 0), self._mb_man_vals[i][0]), (2, (10, 80), self._mb_man_vals[i][1]),
-                                              (4, (0, 120), self._mb_man_vals[i][2])):
-                    sl = fila_d[col_i]
-                    sl.setRange(mn, mx)
-                    sl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, not manual)
-                    sl.setFocusPolicy(Qt.FocusPolicy.StrongFocus if manual else Qt.FocusPolicy.NoFocus)
-                    if manual:
-                        sl.setValue(int(val))
-            for fila_m in self.mb_medidores:            # la tabla del panel: en manual el Ratio llega a 8:1 y la Compensación a +12 dB
-                fila_m[2].setRange(10, 80 if manual else 30); fila_m[4].setRange(0, 120 if manual else 40)
-            if manual:
-                for i, fila_d in enumerate(self.mb_man):
-                    for col_i, val in ((1, self._mb_man_vals[i][0]), (2, self._mb_man_vals[i][1]), (4, self._mb_man_vals[i][2])):
-                        fila_d[col_i].setValue(int(val))
+                sl = fila_d[4]
+                sl.setRange(0, 120 if manual else 40)       # en manual la Compensación llega a +12 dB
+                sl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, not manual)
+                sl.setFocusPolicy(Qt.FocusPolicy.StrongFocus if manual else Qt.FocusPolicy.NoFocus)
+                if manual:
+                    sl.setValue(int(self._mb_man_vals[i][2]))
         finally:
             self._mb_pintando = False
-        self.lbl_mb_info.setText("Manual: Umbral, Ratio y Compensación fijados por vos (movés los deslizadores de la tabla) · cruces fijos 150 Hz / 2,5 kHz" if manual
+        self.lbl_mb_info.setText("Manual: movés la Compensación de cada banda · Umbral y Ratio siguen solos · cruces fijos 150 Hz / 2,5 kHz" if manual
                                  else "Cruces fijos: 150 Hz / 2,5 kHz · los valores de abajo se mueven solos, en vivo")
         self._mb_aplicar_compacto()
 
@@ -261,12 +253,10 @@ class MultibandaMixin:
             return
         mb = self.mixer.mb.mb
         for i, fila_d in enumerate(self.mb_man):
-            u, r, c = fila_d[1].value(), fila_d[2].value(), fila_d[4].value()
-            self._mb_man_vals[i] = [u, r, c]
-            mb.man_umbral[i] = float(u); mb.man_ratio[i] = r / 10.0; mb.man_comp[i] = c / 10.0
-        guardar_config(mb_man_umbral=[v[0] for v in self._mb_man_vals],
-                       mb_man_ratio=[v[1] for v in self._mb_man_vals],
-                       mb_man_comp=[v[2] for v in self._mb_man_vals])
+            c = fila_d[4].value()
+            self._mb_man_vals[i][2] = c
+            mb.man_comp[i] = c / 10.0
+        guardar_config(mb_man_comp=[v[2] for v in self._mb_man_vals])
 
     def _mb_cambio(self, *_):
         self.lbl_mb.setText(f"{self.sld_mb.value()} %")
@@ -300,7 +290,7 @@ class MultibandaMixin:
                 vals = (mb.niveles[i], mb.umbral[i], mb.ratio[i] * 10.0, mb.reduccion[i] * 10.0, mb._mk[i] * 10.0) \
                     if act else (-60, -60, 10, 0, 0)
                 for j, (sl, v) in enumerate(zip(fila, vals)):
-                    if self._mb_manual and j in (1, 2, 4):      # en manual esos los mueve el usuario
+                    if self._mb_manual and j == 4:              # en manual la Compensación la mueve el usuario
                         continue
                     sl.setValue(int(round(float(v))))
         finally:

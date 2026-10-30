@@ -86,16 +86,7 @@ class MultibandaAuto:
         for i, b in enumerate(bandas):
             offset, rmax, ataque, relaj = self.PERFIL[i]
             g_prev = self._g_db[i]
-            if self.manual:
-                if self.niveles[i] < self.GATE_DB:
-                    objetivo = 0.0
-                else:
-                    ratio = float(max(1.0, self.man_ratio[i])); umbral = float(self.man_umbral[i])
-                    self.umbral[i], self.ratio[i], self._mk[i] = umbral, ratio, float(self.man_comp[i])
-                    nivel_bloque = 20.0 * np.log10(float(np.max(np.abs(b))) + 1e-9)
-                    sobre = max(0.0, nivel_bloque - umbral)
-                    objetivo = -sobre * (1.0 - 1.0 / ratio) * inten + self._mk[i]   # Intensidad escala tu compresión (100% = tus valores)
-            elif self.niveles[i] < self.GATE_DB or inten <= 0.0:
+            if self.niveles[i] < self.GATE_DB or (inten <= 0.0 and not self.manual):
                 objetivo = 0.0
                 self._mk[i] += 0.1 * (0.0 - self._mk[i])
             else:
@@ -110,8 +101,11 @@ class MultibandaAuto:
                 nivel_bloque = 20.0 * np.log10(float(np.max(np.abs(b))) + 1e-9)
                 sobre = max(0.0, nivel_bloque - umbral)
                 reduccion = sobre * (1.0 - 1.0 / ratio)
-                mk_obj = float(np.clip(0.5 * max(0.0, 6.0 - off) * (1.0 - 1.0 / ratio), 0.0, 3.0))
-                self._mk[i] += 0.12 * (mk_obj - self._mk[i])
+                if self.manual:                         # manual: Umbral y Ratio los calcula el programa igual que en automático; la Compensación la fija el usuario
+                    self._mk[i] = float(self.man_comp[i])
+                else:
+                    mk_obj = float(np.clip(0.5 * max(0.0, 6.0 - off) * (1.0 - 1.0 / ratio), 0.0, 3.0))
+                    self._mk[i] += 0.12 * (mk_obj - self._mk[i])
                 objetivo = -reduccion + self._mk[i]
             tc = ataque if objetivo < g_prev else relaj
             a = math.exp(-dt / (tc / 1000.0))
@@ -491,7 +485,7 @@ class AutoMejora:
 
     def procesar(self, x):
         y = self.eq.procesar(x)                          # el EQ inteligente (Máx. corrección / Velocidad) sigue activo también en manual
-        self.mb.exceso = None if self.mb.manual else self.eq.exceso_grupos()
+        self.mb.exceso = self.eq.exceso_grupos()           # también en manual: Umbral y Ratio siguen siendo automáticos
         return self.mb.procesar(y)
 
 
