@@ -133,6 +133,29 @@ class AutomaticoMixin:
                        rampa_b=self.rampa_b, fin_a=self.fin_a, gamma_a=self.gamma_a)
         self._update_cf()
 
+    def _quitar_el_que_espera(self):
+        """Botón ⏏: deja vacío el deck que no suena (y lo saca del timeline) para que el tema actual termine y el reproductor se
+        detenga solo, sin mezclar ni cargar otro. Si no suena ninguno, vacía los dos."""
+        if self.mix_timer.isActive() or self.mix_pausa_timer.isActive() or (self.deck_a.playing and self.deck_b.playing):
+            self._set_status("⏏ Esperá a que termine la mezcla en curso")
+            return
+        if self.deck_a.playing or self.deck_b.playing:
+            vaciar = [self.deck_b if self.deck_a.playing else self.deck_a]
+        else:
+            vaciar = [self.deck_a, self.deck_b]
+        self._frase_tok = getattr(self, "_frase_tok", 0) + 1       # cancela una mezcla armada que estuviera esperando la frase
+        self._frase_armada = False
+        for d in vaciar:
+            d.descargar()
+        self._carga_auto_path = None
+        try:
+            self.timeline.redraw()
+        except Exception:
+            pass
+        nom = " y ".join(f"Deck {d.name}" for d in vaciar)
+        log("auto-enganche", f"⏏ {nom} vaciado: el tema que suena termina y el reproductor se detiene")
+        self._set_status(f"⏏ {nom} vacío: el tema termina y el reproductor se detiene")
+
     def _auto_s_cambio(self, v):
         self.auto_s = int(v)
         guardar_config(auto_s=self.auto_s)
@@ -428,6 +451,8 @@ class AutomaticoMixin:
         f = self.crossfader.value()
         sale = self.deck_a if f <= 50 else self.deck_b
         entra = self.deck_b if sale is self.deck_a else self.deck_a
+        if entra.audio is None and not manual:             # el otro deck está vacío: no hay con qué mezclar; el tema sigue y se detiene solo al terminar
+            return
         if self.chk_armonico.isChecked() and not manual:   # estricto (el botón manual nunca se bloquea): solo se engancha un tema compatible
             ks, ke = self._clave_de(sale), self._clave_de(entra)
             nivel = compat_armonica(ks, ke)
@@ -531,6 +556,6 @@ class AutomaticoMixin:
             necesita = self._dur_auto_estimada(sonando, espera) + 1.0               # fundido + pausa del 50 % + 1 s de margen
         else:
             necesita = self.spin_mix.value() + (cruce_auto.PAUSA if cruce_auto.hay_pausa() else 0.0) + 1.0      # + pausa al 50 % + 1 s de margen
-        if resta <= max(float(self.auto_s), necesita):
+        if resta <= necesita:                                                      # respaldo: solo cuando ya no queda tiempo para el cruce (manda la marca del auto-enganche)
             self._set_status(f"🔁 Mezcla automática hacia el Deck {espera.name}")
             self._disparar_mezcla_auto()

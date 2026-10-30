@@ -355,6 +355,15 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         self.btn_esquina.clicked.connect(self._a_la_esquina)
         self._f_dur.insertSpacing(self._f_dur.count() - 1, 12)
         self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_esquina)   # al lado de la consola
+        self.btn_quitar_espera = QPushButton("⏏")
+        self.btn_quitar_espera.setFixedSize(50, 34)
+        self.btn_quitar_espera.setStyleSheet("QPushButton { font-size:21px; padding:0px; }")
+        self.btn_quitar_espera.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_quitar_espera.setToolTip("Quitar el tema que espera: deja vacío el deck que no suena, así el tema actual termina y el reproductor "
+                                          "se detiene solo (no mezcla ni carga otro). Si no suena ninguno, vacía los dos.")
+        self.btn_quitar_espera.clicked.connect(self._quitar_el_que_espera)
+        self._f_dur.insertSpacing(self._f_dur.count() - 1, 12)
+        self._f_dur.insertWidget(self._f_dur.count() - 1, self.btn_quitar_espera)   # a la derecha de la flecha ↖
         self.btn_ajustes_gen = BotonConfig("⚙", px=24)              # botón animado (colores que fluyen): se nota que es de configuración
         self.btn_ajustes_gen.setFixedSize(50, 34)
         
