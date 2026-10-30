@@ -39,16 +39,16 @@ ADAPTA_DUR = 1.0         # 1 = el Auto 'como mi manual' acorta el fundido (¾) s
 # --- CONFIGURACIÓN PROPIA DEL AUTO «como mi manual» (estrategia 2): no toca los deslizadores ni el ritmo del cruce MANUAL ---
 AUTO_PA = DEF_PUNTO_A     # A (sale)
 AUTO_PB = DEF_PUNTO_B     # B (entra)
-AUTO_RB = DEF_RAMPA_B     # B sube en
+AUTO_RB = 0.14            # B sube en (el manual conserva su propio valor por defecto)
 AUTO_FA = DEF_FIN_A       # A termina en
 AUTO_G = DEF_GAMMA_A      # forma de A
 AUTO_PS = DEF_PUNTO_S     # bajo (cambia)
-AUTO_PAUSA = 3.0          # pausa del Auto (s)
+AUTO_PAUSA = 5.0          # pausa del Auto (s)
 AUTO_PAUSA_POS = 0.5      # dónde se queda la pausa del Auto (posición del crossfader)
 MAX_SESGO_APRENDE = aprendizaje.MAX_SESGO
 NIVEL_LUFS = 1.0                # 1 = el volumen de cada tema se parea con su sonoridad real (medida tipo LUFS, ignora silencios e intros calladas) · 0 = como antes (RMS promedio). Vale para los temas que se carguen desde ahora
 AUTO_TEMPO_OCULTO = 1.0         # 1 = en el cruce del Auto, el cambio de tempo entre los dos temas se hace solo mientras suenan juntos (empieza suave cuando el nuevo entra y termina suave cuando el viejo se va), no cuando uno de los dos está solo · 0 = como antes (lineal con el crossfader)
-AUTO_ECO = 1.0                  # 1 = al cruzar temas que no combinan (BPM muy distintos o tonalidades que chocan) el que sale se va cerrando en un filtro y se disuelve en un eco al compás · 0 = sin efecto
+AUTO_ECO = 0.0                  # 1 = al cruzar temas que no combinan (BPM muy distintos o tonalidades que chocan) el que sale se va cerrando en un filtro y se disuelve en un eco al compás · 0 = sin efecto
 AUTO_TONO = 1.0                 # 1 = si las tonalidades de los dos temas chocan y subiendo o bajando UN semitono al que entra pasan a ser compatibles, el que entra suena así (mismo tempo, otro tono) mientras dure en ese deck · 0 = nunca toca el tono
 AUTO_NIVELA = 1.0               # 1 = al empezar un cruce del Auto, el tema que entra arranca al mismo nivel que el que sale (hasta ±3 dB) y se va soltando hasta su nivel normal · 0 = no
 AUTO_ENTRADA_ESTRUCTURA = 1.0   # 1 = si el tema que entra tiene una intro larga, arranca más adentro para que su primera sección fuerte (voz / más energía) caiga justo al terminar el cruce · 0 = siempre desde su primer compás
@@ -63,14 +63,14 @@ AUTO_SEG = 20.0          # estrategia 2: duración TOTAL del cruce del Auto, con
 PRO_COMPASES = 16.0      # largo de la mezcla Pro en compases (4, 8, 16 o 32: se toma el más cercano que quepa en lo que le queda al que sale)
 ZONA_V = 1.5             # tope: fuera del frenado el crossfader nunca va a más de esta velocidad (× la velocidad media de la primera mitad)
 INC_ACTIVO = 1.0         # 1 = con temas incompatibles (BPM muy distintos) el que suena baja de volumen en INC_DUR s y el nuevo entra a su tempo natural antes de que llegue a cero · 0 = el cruce simple de siempre
-INC_DUR = 10.0           # duración de la rampa de bajada del tema que suena (s)
-INC_ENTRA = 0.15         # el tema nuevo entra cuando al que sale le queda este volumen (fracción: 0.15 = 15 %)
-INC_SUBE = 0.4           # el tema nuevo sube a volumen pleno en tantos segundos (0 = entra de golpe)
+INC_DUR = 20.0           # duración de la rampa de bajada del tema que suena (s)
+INC_ENTRA = 0.5          # el tema nuevo entra cuando al que sale le queda este volumen (fracción: 0.15 = 15 %)
+INC_SUBE = 1.5           # el tema nuevo sube a volumen pleno en tantos segundos (0 = entra de golpe)
 INC_BPM = 0.22           # diferencia máxima de BPM (fracción: 0.22 = 22 %) para mezclar emparejando; más que esto = temas incompatibles
 BREAK_ACTIVO = 0.0        # 1 = antes de la marca roja se vigila un «break» del tema que suena (un tramo donde baja la energía) y se mezcla ahí · 0 = solo la marca
 BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (fracción de la duración del tema: 0.15 = 15 %)
-BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
-BREAK_SEG = 2.0           # el break tiene que durar al menos tantos segundos (distancia de la línea amarilla a la blanca)
+BREAK_NIVEL = 0.80        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
+BREAK_SEG = 1.0           # el break tiene que durar al menos tantos segundos (distancia de la línea amarilla a la blanca)
 DEFECTOS = {k: v for k, v in dict(NIVEL_LUFS=NIVEL_LUFS, AUTO_ECO=AUTO_ECO, AUTO_TONO=AUTO_TONO, AUTO_NIVELA=AUTO_NIVELA, AUTO_TEMPO_OCULTO=AUTO_TEMPO_OCULTO, AUTO_ENTRADA_ESTRUCTURA=AUTO_ENTRADA_ESTRUCTURA, AUTO_APRENDE=AUTO_APRENDE, AUTO_OPTIMIZA=AUTO_OPTIMIZA, AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_SEG=BREAK_SEG, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
             ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, AUTO_SEG=AUTO_SEG, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 

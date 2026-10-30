@@ -72,10 +72,9 @@ def cargar():
             d.pop("ESTRATEGIA", None)
         cruce_auto.aplicar(d)
         if "AUTO_PA" not in d:                             # primera vez con la configuración propia del Auto: arranca como el manual que ya tenías
-            cfg = leer_config()
-            cruce_auto.aplicar({"AUTO_PA": cfg.get("punto_a", DEF_PUNTO_A), "AUTO_PB": cfg.get("punto_b", DEF_PUNTO_B), "AUTO_RB": cfg.get("rampa_b", DEF_RAMPA_B),
-                                "AUTO_FA": cfg.get("fin_a", DEF_FIN_A), "AUTO_G": cfg.get("gamma_a", DEF_GAMMA_A), "AUTO_PS": cfg.get("punto_s", DEF_PUNTO_S),
-                                "AUTO_PAUSA": cruce_auto.PAUSA, "AUTO_PAUSA_POS": cruce_auto.PAUSA_POS})
+            cfg = leer_config()                            # solo se copia lo que el usuario ya había guardado en el manual; en una instalación nueva valen los valores por defecto del Auto
+            viejo = {"AUTO_PA": "punto_a", "AUTO_PB": "punto_b", "AUTO_RB": "rampa_b", "AUTO_FA": "fin_a", "AUTO_G": "gamma_a", "AUTO_PS": "punto_s"}
+            cruce_auto.aplicar({k: cfg[c] for k, c in viejo.items() if c in cfg})
             guardar()
     except Exception:
         import traceback; traceback.print_exc()
