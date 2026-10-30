@@ -390,7 +390,8 @@ class MezclaMixin:
         marco.setObjectName("marcoBreak")
         marco.setStyleSheet(qss_marco("QGroupBox#marcoBreak", TEMA["ambar"]) + " QGroupBox { padding-top:0px; }")
         marco.setFixedHeight(92); marco.setFixedWidth(210)
-        g = QGridLayout(marco); g.setContentsMargins(8, 12, 8, 4); g.setHorizontalSpacing(5); g.setVerticalSpacing(1)
+        g = QGridLayout(marco); g.setContentsMargins(8, 4, 8, 6); g.setHorizontalSpacing(5); g.setVerticalSpacing(1)
+        g.setRowStretch(0, 0); g.setRowStretch(4, 1)               # los tres deslizadores pegados arriba, justo bajo el título; el sobrante queda abajo
         filas = (("BREAK_VENTANA", "Desde", 1, 40, 100, "{:.0%}",
                   "Vigilar desde: cuánto antes de la marca roja se empieza a buscar el break (% de la duración del tema)."),
                  ("BREAK_NIVEL", "Bajo", 30, 80, 100, "{:.0%}",
@@ -406,7 +407,7 @@ class MezclaMixin:
             val = QLabel(fmt.format(sl.value() / div)); val.setFixedWidth(40); val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             val.setStyleSheet("font-size:11px;")
             sl.valueChanged.connect(lambda x, k=k, div=div, fmt=fmt, val=val: self._break_slider(k, x, div, fmt, val))
-            g.addWidget(lb, r, 0); g.addWidget(sl, r, 1); g.addWidget(val, r, 2)
+            g.addWidget(lb, r + 1, 0); g.addWidget(sl, r + 1, 1); g.addWidget(val, r + 1, 2)
             self._sl_break[k] = sl
         g.setColumnStretch(1, 1)
         self.marco_break = marco
