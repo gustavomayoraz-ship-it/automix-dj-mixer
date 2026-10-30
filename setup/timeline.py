@@ -232,13 +232,18 @@ class UnifiedTimeline(QGraphicsView):
                 compas = float(np.median(np.diff(db))) if len(db) > 2 else 240.0 / max(60.0, float(analysis.get("bpm") or 120.0))
             except Exception:
                 compas = 2.5
-            nv = cruce_auto.nivel_break(analysis, anchor)
+            try:
+                prim = self.deck_vigilado() if callable(getattr(self, "deck_vigilado", None)) else None     # el tema que suena (el que vigila el detector)
+            except Exception:
+                prim = None
+            suena = prim is None or prim.analysis is analysis
+            nv = cruce_auto.nivel_break(analysis, anchor) if suena else None
             if nv is not None:                               # dos líneas rojas, 2 compases, centradas en el playhead: por debajo de ellas un compás cuenta como «bajo»
                 dy = min(amp, (nv / maxv) * amp)
                 x0 = self.t_to_x(anchor - compas, W, anchor); x1 = self.t_to_x(anchor + compas, W, anchor)
                 for yy in (center_y - dy, center_y + dy):
                     ln = QGraphicsLineItem(x0, yy, x1, yy)
-                    ln.setPen(QPen(QColor(255, 59, 78, 235), 1.6))
+                    ln.setPen(QPen(QColor(255, 59, 78, 235) if top <= 0 else QColor(110, 235, 255, 240), 1.6))      # canal de arriba (Deck A): rojo · canal de abajo (Deck B, rosa): celeste claro, para que no se confunda con la onda
                     self.scene_.addItem(ln)
             xl = self.t_to_x(anchor + float(cruce_auto.BREAK_SEG), W, anchor)     # línea amarilla: hasta dónde llega la duración mínima del break (hacia donde viene el tema)
             for pen in (QPen(QColor(0, 0, 0, 200), 4.2), QPen(QColor(255, 235, 40), 2.2)):

@@ -399,13 +399,16 @@ class MezclaMixin:
                  ("BREAK_SEG", "Dura", 5, 80, 10, "{:.1f} s",
                   "Duración mínima del break: distancia de la línea blanca a la amarilla del timeline. Más corto = reacciona a valles breves (más falsos disparos)."))
         self._sl_break = {}
+        colores = {"BREAK_VENTANA": TEMA["ambar"], "BREAK_NIVEL": TEMA["rojo"], "BREAK_SEG": "#ffeb28"}      # el mismo color de la línea que mueve cada slider
         for r, (k, txt, lo, hi, div, fmt, tip) in enumerate(filas):
-            lb = QLabel(txt); lb.setToolTip(tip); lb.setStyleSheet("font-size:11px;")
+            col = colores[k]
+            lb = QLabel(txt); lb.setToolTip(tip); lb.setStyleSheet(f"font-size:11px; font-weight:bold; color:{col};")
             sl = QSlider(Qt.Orientation.Horizontal); sl.setRange(lo, hi); sl.setToolTip(tip)
             sl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            sl.setStyleSheet(f"QSlider::sub-page:horizontal {{ background:{col}; border-radius:3px; }} QSlider::handle:horizontal {{ border:1px solid {col}; }}")
             sl.setValue(int(round(getattr(cruce_auto, k) * div)))
             val = QLabel(fmt.format(sl.value() / div)); val.setFixedWidth(40); val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            val.setStyleSheet("font-size:11px;")
+            val.setStyleSheet(f"font-size:11px; font-weight:bold; color:{col};")
             sl.valueChanged.connect(lambda x, k=k, div=div, fmt=fmt, val=val: self._break_slider(k, x, div, fmt, val))
             g.addWidget(lb, r + 1, 0); g.addWidget(sl, r + 1, 1); g.addWidget(val, r + 1, 2)
             self._sl_break[k] = sl

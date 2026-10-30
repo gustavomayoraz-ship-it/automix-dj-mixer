@@ -403,6 +403,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         tl_lay = QVBoxLayout(tl_box)
         tl_lay.setContentsMargins(4, 4, 4, 4)
         self.timeline = UnifiedTimeline(self.deck_a, self.deck_b, on_manito_cb=self._on_manito_release)
+        self.timeline.deck_vigilado = self._deck_primario          # el timeline dibuja las líneas del detector de breaks solo en el canal del tema que suena
         self.timeline.px_per_s = float(self.sld_zoom.value())
         tl_lay.addWidget(self.timeline)
         root.addWidget(tl_box, stretch=1)
