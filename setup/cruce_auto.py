@@ -58,7 +58,8 @@ ACEL_POS = 0.0           # estrategia 2: hasta dónde ACELERA el crossfader desd
 S2_FRENO = 3.0           # estrategia 2: cuánto frena desde ahí hasta la pausa (× : 1 = no frena · la velocidad en la pausa es 1/× de la máxima)
 START_V = 0.35           # estrategia 2: velocidad con que arranca el crossfader (× la máxima)
 MAX_SEG_MANUAL = 30.0    # estrategia 2: el cruce no dura más de esto (s)
-MAN_COMPASES = 8.0       # estrategia 2: largo del fundido en compases (así dura lo mismo, en compases, a cualquier tempo) · 0 = usar los segundos del deslizador «Duración»
+MAN_COMPASES = 0.0       # (ya no se usa: el Auto dura AUTO_SEG segundos)
+AUTO_SEG = 20.0          # estrategia 2: duración TOTAL del cruce del Auto, con la pausa incluida (s): dura exactamente esto
 PRO_COMPASES = 16.0      # largo de la mezcla Pro en compases (4, 8, 16 o 32: se toma el más cercano que quepa en lo que le queda al que sale)
 ZONA_V = 1.5             # tope: fuera del frenado el crossfader nunca va a más de esta velocidad (× la velocidad media de la primera mitad)
 INC_ACTIVO = 1.0         # 1 = con temas incompatibles (BPM muy distintos) el que suena baja de volumen en INC_DUR s y el nuevo entra a su tempo natural antes de que llegue a cero · 0 = el cruce simple de siempre
@@ -71,7 +72,7 @@ BREAK_VENTANA = 0.15      # cuánto antes de la marca se empieza a vigilar (frac
 BREAK_NIVEL = 0.55        # un compás cuenta como break si su energía es menor que esta fracción de la energía normal del tema
 BREAK_SEG = 2.0           # el break tiene que durar al menos tantos segundos (distancia de la línea amarilla a la blanca)
 DEFECTOS = {k: v for k, v in dict(NIVEL_LUFS=NIVEL_LUFS, AUTO_ECO=AUTO_ECO, AUTO_TONO=AUTO_TONO, AUTO_NIVELA=AUTO_NIVELA, AUTO_TEMPO_OCULTO=AUTO_TEMPO_OCULTO, AUTO_ENTRADA_ESTRUCTURA=AUTO_ENTRADA_ESTRUCTURA, AUTO_APRENDE=AUTO_APRENDE, AUTO_OPTIMIZA=AUTO_OPTIMIZA, AUTO_PA=AUTO_PA, AUTO_PB=AUTO_PB, AUTO_RB=AUTO_RB, AUTO_FA=AUTO_FA, AUTO_G=AUTO_G, AUTO_PS=AUTO_PS, AUTO_PAUSA=AUTO_PAUSA, AUTO_PAUSA_POS=AUTO_PAUSA_POS, ACEL_POS=ACEL_POS, S2_FRENO=S2_FRENO, INC_ACTIVO=INC_ACTIVO, INC_DUR=INC_DUR, INC_ENTRA=INC_ENTRA, INC_SUBE=INC_SUBE, INC_BPM=INC_BPM, BREAK_ACTIVO=BREAK_ACTIVO, BREAK_VENTANA=BREAK_VENTANA, BREAK_NIVEL=BREAK_NIVEL, BREAK_SEG=BREAK_SEG, PAUSA=PAUSA, PAUSA_POS=PAUSA_POS, MIN_DUR=MIN_DUR, DUR_IDEAL=DUR_IDEAL, MAX_DUR=MAX_DUR, ENT_MIN=ENT_MIN, ENT_MAX=ENT_MAX,
-            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, MAN_COMPASES=MAN_COMPASES, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
+            ZONA_K=ZONA_K, ZONA_MIN=ZONA_MIN, ZONA_ACEL=ZONA_ACEL, ZONA_V=ZONA_V, RB_MIN=RB_MIN, ESTRATEGIA=ESTRATEGIA, PRO_COMPASES=PRO_COMPASES, AUTO_SEG=AUTO_SEG, ESPERA_FRASE=ESPERA_FRASE, PAUSA_EN_LINEA=PAUSA_EN_LINEA, ADAPTA_DUR=ADAPTA_DUR).items()}
 
 
 def aplicar(valores):
@@ -660,12 +661,10 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
     resta = sale.get("resta")
     dur = float(forma.get("dur") or 10.0)
     pausa0 = hay_pausa()
-    n0 = max(2, int(round(MAN_COMPASES))) if MAN_COMPASES >= 1 else max(2, int(round(dur / compas)))
+    n0 = max(2, int(round(float(AUTO_SEG) / compas)))               # (solo para elegir y mostrar: el total es exactamente AUTO_SEG segundos)
     cap = max(2, int(MAX_SEG_MANUAL // compas))                    # tope: el cruce nunca pasa de 30 s
     n0 = min(n0, cap)
-    choque = (compat == 0) or dif_tempo > 0.08
-    if choque and ADAPTA_DUR >= 0.5:                              # tonalidad o tempo que chocan: se pasa más rápido de un tema al otro
-        n0 = max(4, int(round(n0 * 0.75)))
+    choque = (compat == 0) or dif_tempo > 0.08                    # (el tiempo total no se acorta: dura lo que pusiste en «Tiempo»)
     pb = max(0.0, min(0.9, float(forma["pb"]))); rb = max(0.02, min(float(forma["rb"]), 1.0 - pb))
     pa = max(0.0, min(0.9, float(forma["pa"]))); fa = max(pa + 0.05, min(1.0, float(forma.get("fa") or 1.0)))
     gamma = float(forma.get("gamma") or 1.0)
@@ -683,28 +682,26 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
         voces = float(np.mean((vs[:k0] >= UMBRAL_VOZ) & (ve[:k0] >= UMBRAL_VOZ)))      # fracción del cruce con voz en los dos
     par = aprendizaje.clave_par(compat, dif_tempo, voces)
     n_base = n0
-    sesgo = 0
-    if AUTO_APRENDE >= 0.5:                                       # lo que aprendió de tus 👍 / 👎 para pares parecidos
-        sesgo = aprendizaje.sesgo_compases(par)
-        n0 = max(2, min(cap, n0 + sesgo))
+    sesgo = 0                                                     # (los 👍 / 👎 se siguen guardando, pero ya no mueven la duración: manda el tiempo fijo)
 
     def tiempos(n):
-        """(n, total, pausa, pausa en s, D) para n compases, ajustado a lo que le queda al que sale."""
+        """(n, total, pausa, pausa en s, D): el total es EXACTAMENTE AUTO_SEG segundos (la pausa incluida); solo se achica si al tema que sale no le queda tanto."""
+        total = float(AUTO_SEG)
         pausa = pausa0
-        total = n * compas                                        # el tiempo estipulado INCLUYE la pausa
-        pa_s = pausa_s() if pausa else 0.0
-        while resta is not None and n > 2 and total > resta - 1.0:
-            n -= 1; total = n * compas
-        if resta is not None and total > resta - 1.0:              # no entra ni con 2 compases: lo que quede, sin pausa
-            n, total, pausa, pa_s = 0, max(1.5, resta - 1.5), False, 0.0
-        return n, total, pausa, pa_s, max(2.0, total - pa_s)
+        pa_s = min(pausa_s(), 0.6 * total) if pausa else 0.0       # la pausa nunca se come más del 60 % del total
+        if resta is not None and total > resta - 1.0:              # al que sale no le queda tanto: lo que quede
+            total = max(1.5, resta - 1.5)
+            pa_s = min(pa_s, 0.6 * total)
+            if total < 5.0:
+                pausa, pa_s = False, 0.0
+        return max(0, int(round(total / compas))), total, pausa, pa_s, max(2.0, total - pa_s)
 
     n, total, pausa, pa_s, D = tiempos(n0)
     ps = ps0
     extra = ""
     if AUTO_OPTIMIZA >= 0.5 and n >= 2:
         try:
-            n_max = min(cap, n0 + 2)
+            n_max = n0                                              # (la duración es fija: solo se compara la línea de compás del cambio de bajo)
             be, _ = _serie(entra.get("bajo"), dt_e, entra["pos"], entra["rate"], largo)
             ls, _ = _serie(sale.get("rms"), float(sale.get("rms_dt", 0.5)), sale["pos"], sale["rate"], largo)
             le, _ = _serie(entra.get("rms"), float(entra.get("rms_dt", 0.5)), entra["pos"], entra["rate"], largo)
@@ -712,7 +709,7 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
             if vok_s and vok_e:
                 compat_fac = 0.3 if choque else 0.0
                 mejor = None
-                for nc in range(max(2, n0 - 2), n_max + 1):
+                for nc in range(n0, n_max + 1):
                     n_c, tot_c, pausa_c, pa_c, D_c = tiempos(nc)
                     if n_c < 2:
                         continue
@@ -726,17 +723,17 @@ def disenar_manual(sale, entra, compat=None, dif_tempo=0.0, forma=None):
                     extra = f" · optimizado ({n} compases" + (f", tu plantilla: {n_base}" if n != n_base else "") + f", bajo al {ps:.0%})"
         except Exception:
             import traceback; traceback.print_exc()
-    razon = "como tu cruce Auto de ⚙ Ajustes (tu forma, tu tiempo, la pausa y el ritmo)" + extra
-    if sesgo:
-        razon += f" · aprendido de tus votos: {sesgo:+d} compases para este tipo de par"
+    razon = f"como tu cruce Auto de ⚙ Ajustes (tu forma, {AUTO_SEG:.0f} s en total y la pausa)" + extra
     if choque:
-        razon += " · tonalidad/tempo chocan" + (": fundido más corto" if ADAPTA_DUR >= 0.5 else "")
+        razon += " · tonalidad/tempo chocan"
+    if resta is not None and total < float(AUTO_SEG) - 0.5:
+        razon += f" · acortado: al tema que sale solo le quedan {resta:.0f} s"
     return {"pa": float(pa), "fa": float(fa), "pb": float(pb), "rb": float(rb), "ps": float(ps), "gamma": float(gamma),
             "conflicto": 0.0, "choque_ini": 0.0, "fin_voz_a": None,
             "pc": None if pc is None else float(pc), "zpb": None if zpb is None else float(zpb),
             "dur": float(D), "pausa": bool(pausa), "pausa_s": float(pa_s), "n": int(n), "estrategia": "manual",
             "n_base": int(n_base), "clave_par": par, "compat": compat, "dif_tempo": float(dif_tempo or 0.0),
-            "nombre": (f"Como el manual · {n} compases · {D + pa_s:.0f} s" if n else f"Como el manual · corta · {D:.0f} s") + (f" (con pausa de {pausa_s():g} s)" if pausa else ""),
+            "nombre": (f"Como el manual · {D + pa_s:.0f} s ({n} compases)" if n else f"Como el manual · corta · {D:.0f} s") + (f" (con pausa de {pausa_s():g} s)" if pausa else ""),
             "razon": razon}
 
 

@@ -30,11 +30,11 @@ class AutomaticoMixin:
     # ================= CRUCE AUTO (lo diseña el programa para cada par de temas) =================
     def _spin_mix_activo(self):
         """La duración se edita en Manual y también en el Auto 'como el manual' (estrategia 2), que usa esa misma duración."""
-        return (not self.cruce_auto) or (cruce_auto.ESTRATEGIA >= 1.5 and cruce_auto.MAN_COMPASES < 1)
+        return not self.cruce_auto
 
     def _texto_btn_mix(self):
-        if self.cruce_auto and cruce_auto.ESTRATEGIA >= 1.5 and cruce_auto.MAN_COMPASES >= 1:
-            return f"🎬 Mezclar (auto · {cruce_auto.MAN_COMPASES:.0f} comp) [F2]"
+        if self.cruce_auto and cruce_auto.ESTRATEGIA >= 1.5:
+            return f"🎬 Mezclar (auto · {cruce_auto.AUTO_SEG:.0f} s) [F2]"
         return "🎬 Mezclar (auto) [F2]" if not self._spin_mix_activo() else f"🎬 Mezclar ({self.spin_mix.value()}s) [F2]"
 
     def _plan_activo(self):
@@ -79,7 +79,7 @@ class AutomaticoMixin:
             dif = 0.0
         forma = None
         if cruce_auto.ESTRATEGIA >= 1.5:                  # Auto «como mi manual»: tiene su propia forma y su propio ritmo en ⚙ Ajustes (separados del manual)
-            return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif, forma=cruce_auto.forma_auto(self.spin_mix.value()))
+            return cruce_auto.disenar(S, E, compat=compat, dif_tempo=dif, forma=cruce_auto.forma_auto(cruce_auto.AUTO_SEG))
         try:                                              # la forma de los deslizadores "Forma de cruce A/B" (lo que se afina a mano) también vale en el Auto Pro
             forma = {"pa": self.punto_a, "pb": self.punto_b, "rb": self.rampa_b, "ps": self.punto_s, "gamma": self.gamma_a,
                      "fa": (None if self.fin_a >= 0.995 else self.fin_a), "dur": float(self.spin_mix.value())}

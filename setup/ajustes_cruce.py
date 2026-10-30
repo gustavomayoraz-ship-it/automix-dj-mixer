@@ -16,7 +16,7 @@ CLAVE = "ajustes_cruce"
 
 # (clave en cruce_auto, texto, mínimo, máximo, divisor, formato, ayuda)
 # Ajustes que solo tienen efecto con ciertas estrategias (el resto valen siempre, también en Manual): se esconden cuando no sirven
-SOLO_ESTRATEGIA = {"MAN_COMPASES": 2, "AUTO_OPTIMIZA": 2, "AUTO_APRENDE": 2, "AUTO_ENTRADA_ESTRUCTURA": 2, "ADAPTA_DUR": 2, "PRO_COMPASES": 1,
+SOLO_ESTRATEGIA = {"AUTO_OPTIMIZA": 2, "AUTO_ENTRADA_ESTRUCTURA": 2, "PRO_COMPASES": 1,
                    "MIN_DUR": 0, "DUR_IDEAL": 0, "MAX_DUR": 0, "ENT_MIN": 0, "ENT_MAX": 0, "RB_MIN": 0}
 
 
@@ -28,9 +28,7 @@ def _estrategia_activa():
 GRUPOS = [
     ("🎛 Estrategia del cruce Auto", [
         ("ESTRATEGIA", "Estrategia (0 clásica · 1 Pro · 2 como mi manual)", 0, 2, 1, "{:.0f}",
-         "2 = el Auto mezcla igual que tu cruce MANUAL: tu forma de A/B, tu duración (el deslizador «Duración»), la pausa del 50 % y el\nfrenado de abajo; solo redondea la duración a compases enteros.\n1 = Pro: mezcla larga en frase (B entra sin graves, el bajo cambia a la mitad, A se va después), sin pausa ni frenado.\n0 = la clásica (la diseña el programa para cada par)."),
-        ("MAN_COMPASES", "Compases del Auto «como mi manual» (0 = segundos)", 0, 12, 1, "{:.0f}",
-         "Largo del fundido de la estrategia 2 en compases: dura lo mismo en compases a cualquier tempo (a 96 BPM, 8 compases son unos 20 s;\na 136 BPM, unos 14 s). 0 = usar los segundos del deslizador «Duración» (redondeados a compases)."),
+         "2 = el Auto parte de su propia forma de cruce (panel de arriba: forma de A/B, pausa y tiempo total): el cruce dura exactamente el «Tiempo total» que pongas\ny el Auto ajusta por su cuenta la línea de compás donde pasa el bajo.\n1 = Pro: mezcla larga en frase (B entra sin graves, el bajo cambia a la mitad, A se va después), sin pausa ni frenado.\n0 = la clásica (la diseña el programa para cada par)."),
         ("NIVEL_LUFS", "Parejar el volumen de cada tema con su sonoridad real (tipo LUFS)", 0, 1, 1, "{:.0f}",
          "1 = al cargar un tema se mide su sonoridad con el filtro K de la norma BS.1770 y compuertas (ignora silencios, intros calladas y tramos muy bajos) y se le\n"
          "ajusta la ganancia para que todos suenen igual de fuertes. 0 = el método de antes (RMS promedio, que sube de más a los temas con intro callada).\n"
@@ -51,11 +49,8 @@ GRUPOS = [
          "1 = el Auto mira la estructura del tema que entra (en frases de 8 compases): si tiene una intro larga, arranca más adentro para que su primera sección fuerte\n"
          "(cuando empieza la voz o sube la energía) caiga justo cuando termina el cruce, en vez de que la voz te pise a la mitad. Si el tema ya arranca fuerte, o la\n"
          "intro es más corta que el cruce, arranca de siempre. 0 = siempre desde su primer compás. Vale en los cruces que arranca el Auto (no cuando posicionás vos el tema)."),
-        ("AUTO_APRENDE", "El Auto aprende de tus 👍 / 👎 (botones de la mezcla)", 0, 1, 1, "{:.0f}",
-         "1 = después de cada mezcla del Auto podés votar 👍 / 👎 (si fue 👎, por qué). Con pares de temas parecidos (armonía, tempo, voces) el Auto corre la\n"
-         "duración hasta ±3 compases hacia lo que te gustó. 0 = ignora lo aprendido (los votos se siguen guardando). Para borrarlo: botón «Olvidar lo aprendido»."),
         ("AUTO_OPTIMIZA", "Optimizar cada cruce del Auto (prueba variantes y elige la mejor)", 0, 1, 1, "{:.0f}",
-         "1 = el Auto diseña varias versiones de cada cruce (±2 compases de duración y distintas líneas de compás para el cambio de bajo), las puntúa\n"
+         "1 = el Auto diseña varias versiones de cada cruce (distintas líneas de compás para el cambio de bajo; la duración no cambia), las puntúa\n"
          "(voces de los dos juntas, saltos de volumen, bajo de B que todavía no suena) y ejecuta la que menos molesta. Se queda cerca de tu plantilla.\n"
          "0 = hace exactamente lo que está en el panel de arriba. El motivo de cada elección queda en el registro («optimizado…»)."),
         ("PRO_COMPASES", "Compases de la mezcla Pro", 4, 32, 1, "{:.0f}",
@@ -67,8 +62,6 @@ GRUPOS = [
          "Al llegar a la marca roja del auto-enganche, la mezcla espera (como mucho este tiempo) al próximo inicio de frase (cada 8 compases)\ndel tema que sale, así arranca en el \"1\" de la frase. 0 = arranca justo en la marca. Solo si la grilla del tema es firme."),
         ("PAUSA_EN_LINEA", "Pausa del 50 % hasta la línea de compás", 0, 1, 1, "{:.0f}",
          "1 = la pausa del medio del AUTO termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración configurada.\n0 = dura siempre lo mismo. Solo vale en el Auto: la pausa del cruce manual dura exactamente lo que se elige en el panel «Forma de cruce A/B»."),
-        ("ADAPTA_DUR", "Acortar si chocan tonalidad o tempo", 0, 1, 1, "{:.0f}",
-         "1 = en el Auto «como mi manual», el fundido dura ¾ si la tonalidad o el tempo de los dos temas chocan (se pasa más rápido de uno al otro).\n0 = siempre el mismo largo."),
     ]),
 ]
 
@@ -757,14 +750,10 @@ class PanelCruceAuto(QFrame):
         l_pd.setToolTip(tip_pd); self.cb_pd.setToolTip(tip_pd)
         self.cb_pd.currentIndexChanged.connect(lambda _i: self._aplicar_cruce({"AUTO_PAUSA": float(self.cb_pd.currentData() or 0)}))
         gl.addWidget(l_pd, r, 0); gl.addWidget(self.cb_pd, r, 1, 1, 2)
-        sl, lv = self._fila(gl, r + 1, "Tiempo:", "#ffffff", 2, 12, "Cuánto dura el cruce completo, con la pausa incluida (máximo 30 s).")
+        sl, lv = self._fila(gl, r + 1, "Tiempo total:", "#ffffff", 5, 30, "Cuánto dura el cruce del Auto en total, con la pausa incluida.")
         lv.setMinimumWidth(92)
         self._tiempo = (sl, lv)
         sl.valueChanged.connect(self._cambio_tiempo)
-        try:
-            ventana.spin_mix.valueChanged.connect(lambda _x: self.sincronizar())
-        except Exception:
-            pass
         self.sincronizar()
 
     @staticmethod
@@ -780,19 +769,10 @@ class PanelCruceAuto(QFrame):
             return
         self.d.auto_set(valores)
 
-    def _tiempo_en_compases(self):
-        return cruce_auto.MAN_COMPASES >= 1
-
     def _cambio_tiempo(self, x):
         if self._bloq:
             return
-        if self._tiempo_en_compases():
-            self.d.auto_set({"MAN_COMPASES": float(x)})
-        else:
-            try:
-                self.v.spin_mix.setValue(int(x))
-            except Exception:
-                pass
+        self.d.auto_set({"AUTO_SEG": float(x)})
         self.sincronizar()
 
     def _dibujar(self):
@@ -811,19 +791,9 @@ class PanelCruceAuto(QFrame):
                 sl.setValue(int(round(leer()))); lv.setText(fmt(sl.value()))
             self.cb_pd.setCurrentIndex(max(0, min(9, int(round(cruce_auto.AUTO_PAUSA)))))
             sl, lv = self._tiempo
-            if self._tiempo_en_compases():
-                n = int(round(cruce_auto.MAN_COMPASES))
-                sl.setRange(2, 12); sl.setValue(max(2, min(12, n)))
-                lv.setText(f"{sl.value()} comp ≈ {sl.value() * VistaRitmo.BAR:.0f} s")
-                sl.setToolTip("Largo del cruce en compases (es el «Compases del Auto» de abajo). A 96 BPM, 8 compases son unos 20 s.")
-            else:
-                try:
-                    seg = int(self.v.spin_mix.value())
-                except Exception:
-                    seg = 20
-                sl.setRange(1, 30); sl.setValue(min(30, seg))
-                lv.setText(f"{sl.value()} s")
-                sl.setToolTip("Largo del cruce en segundos (es el deslizador «Duración» de la ventana principal).")
+            sl.setRange(5, 30); sl.setValue(max(5, min(30, int(round(cruce_auto.AUTO_SEG)))))
+            lv.setText(f"{sl.value()} s")
+            sl.setToolTip("Cuánto dura el cruce del Auto en total, con la pausa incluida. Dura exactamente esto (solo se acorta si al tema que sale no le queda tanto).")
         finally:
             self._bloq = False
         self._dibujar()
@@ -978,7 +948,7 @@ class AjustesCruce(QDialog):
                 v.update()
         if hasattr(self, "panel_nuevo"):
             self.panel_nuevo.sincronizar()
-        if "MAN_COMPASES" in valores or "ESTRATEGIA" in valores:
+        if "AUTO_SEG" in valores or "ESTRATEGIA" in valores:
             try:
                 self.v.spin_mix.setEnabled(self.v._spin_mix_activo()); self.v.btn_mix.setText(self.v._texto_btn_mix())
             except Exception:
@@ -1012,7 +982,7 @@ class AjustesCruce(QDialog):
         cruce_auto.aplicar({k: x / div})
         if k == "ESTRATEGIA":
             self._visibles()
-        if k in ("ESTRATEGIA", "MAN_COMPASES"):
+        if k in ("ESTRATEGIA", "AUTO_SEG"):
             try:
                 self.v.spin_mix.setEnabled(self.v._spin_mix_activo()); self.v.btn_mix.setText(self.v._texto_btn_mix())
             except Exception:
