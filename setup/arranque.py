@@ -8,6 +8,11 @@ def abrir_splash():
     from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QPixmap
     from PySide6.QtWidgets import QApplication, QSplashScreen
     app = QApplication.instance() or QApplication(sys.argv)
+    try:
+        from setup.icono import aplicar_icono
+        aplicar_icono(app)               # icono propio (no el de Python) en la ventana y en la barra de tareas
+    except Exception:
+        pass
     w, h = 520, 250
     pm = QPixmap(w, h); pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)

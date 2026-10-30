@@ -623,6 +623,11 @@ def main(tiempos=None, splash=None):
     sys.setswitchinterval(0.0005)        # el hilo del audio no espera 5 ms a que la pantalla suelte Python (menos trancadas)
     app = QApplication.instance() or QApplication(sys.argv)
     try:
+        from setup.icono import aplicar_icono
+        aplicar_icono(app)
+    except Exception:
+        pass
+    try:
         from PySide6.QtCore import qInstallMessageHandler, __version__ as _qv
         qInstallMessageHandler(_mensajes_qt)             # los avisos internos de Qt también van a la consola
         import platform

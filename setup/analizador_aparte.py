@@ -72,6 +72,11 @@ def main(argv):
     from setup.dialogo_analisis import DialogoAnalisis
     from setup.hilos_analisis import AnalizadorBiblioteca
     app = QApplication.instance() or QApplication(sys.argv)
+    try:
+        from setup.icono import aplicar_icono
+        aplicar_icono(app)
+    except Exception:
+        pass
     n = AnalizadorBiblioteca._limitar_por_ram(max(1, min(10, (os.cpu_count() or 2) - 2))) if not suave else AnalizadorBiblioteca._num_trabajadores()
     pie = ("Podés seguir usando el reproductor: el análisis se hace aparte y lo guardado queda en la carpeta cache."
            if not suave else "Modo suave (prioridad baja): se puede usar el reproductor mientras tanto, pero tarda más.")

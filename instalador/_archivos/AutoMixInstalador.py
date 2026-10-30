@@ -300,7 +300,7 @@ class Instalacion:
             ruta.write_bytes(script.encode("cp1252", errors="replace"))
             clave = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\AutoMix"
             valores = [("DisplayName", "REG_SZ", "AutoMix"), ("Publisher", "REG_SZ", "Gustavo Mayoraz"),
-                       ("InstallLocation", "REG_SZ", r), ("DisplayIcon", "REG_SZ", str(self.pyw_exe)),
+                       ("InstallLocation", "REG_SZ", r), ("DisplayIcon", "REG_SZ", str(self.raiz / "docs" / "automix.ico") if (self.raiz / "docs" / "automix.ico").exists() else str(self.pyw_exe)),
                        ("UninstallString", "REG_SZ", f'"{ruta}"'),
                        ("NoModify", "REG_DWORD", "1"), ("NoRepair", "REG_DWORD", "1")]
             for nombre, tipo, dato in valores:
@@ -321,12 +321,14 @@ class Instalacion:
             return
         def ps(s: str) -> str:
             return "'" + str(s).replace("'", "''") + "'"
+        ico = self.raiz / "docs" / "automix.ico"                 # icono de AutoMix (viene con el código); si falta, queda el de Python
+        icono_ps = f"$l.IconLocation = {ps(str(ico) + ',0')}; " if ico.exists() else ""
         guion = (
             "$w = New-Object -ComObject WScript.Shell; "
             "foreach ($d in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { "
             "$l = $w.CreateShortcut((Join-Path $d 'AutoMix.lnk')); "
             f"$l.TargetPath = {ps(self.pyw_exe)}; $l.Arguments = {ps(chr(34) + str(self.raiz / 'AutoMix.py') + chr(34))}; "
-            f"$l.WorkingDirectory = {ps(self.raiz)}; $l.Description = 'AutoMix - mezclador DJ'; $l.Save() }}")
+            f"$l.WorkingDirectory = {ps(self.raiz)}; {icono_ps}$l.Description = 'AutoMix - mezclador DJ'; $l.Save() }}")
         try:
             r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", guion], capture_output=True,
                                text=True, creationflags=CREATE_NO_WINDOW, timeout=60)
