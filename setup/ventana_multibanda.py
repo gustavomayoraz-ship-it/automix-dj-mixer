@@ -73,9 +73,10 @@ class MultibandaMixin:
             "COMPENSACIÓN (en manual se regula)\nGanancia que se suma a la banda después de comprimirla, para recuperar el volumen que se perdió.\n"
             "• 0 dB: sin ayuda.  • +1 a +3 dB: devuelve cuerpo cuando la reducción es alta.\n"
             "Subirla mucho hace sonar más fuerte esa banda (graves más pesados, agudos más brillantes).")
+        pos_col = (0, 2, 3, 1, 4)           # lugar en pantalla de cada columna: a la izquierda las que solo se miran (Nivel, Reducción) y a la derecha las que en manual se mueven (Umbral, Ratio, Compensación)
         for j, (nombre, _mn, _mx, _f, tip) in enumerate(columnas):
             e = EtiquetaElidida(nombre); e.setStyleSheet(suave); e.setToolTip(ayudas[j])
-            g.addWidget(e, 1, 1 + 2 * j, 1, 2)
+            g.addWidget(e, 1, 1 + 2 * pos_col[j], 1, 2)
         rango_man = (0, 0, 80, 120, 120)        # en manual el Ratio llega a 8:1 y la Compensación a +12 dB: el ancho cubre el máximo
         man = (cfg.get("mb_man_umbral", list(DEF_MAN_UMBRAL)), cfg.get("mb_man_ratio", list(DEF_MAN_RATIO)), cfg.get("mb_man_comp", list(DEF_MAN_COMP)))
         self._mb_man_vals = [[int(man[0][i]), int(man[1][i]), int(man[2][i])] for i in range(3)]
@@ -95,7 +96,7 @@ class MultibandaMixin:
                 sl.valueChanged.connect(lambda v, l=lbl, f=fmt: l.setText(f(v)))
                 if j in (1, 2, 4):                      # Umbral, Ratio y Compensación: en manual los mueve el usuario acá mismo
                     sl.valueChanged.connect(self._mb_manual_cambio)
-                g.addWidget(sl, 2 + i, 1 + 2 * j); g.addWidget(lbl, 2 + i, 2 + 2 * j)
+                g.addWidget(sl, 2 + i, 1 + 2 * pos_col[j]); g.addWidget(lbl, 2 + i, 2 + 2 * pos_col[j])
                 fila_m.append(sl)
             self.mb_medidores.append(fila_m)
         self.mb_man = self.mb_medidores             # (los mismos deslizadores: indicadores en automático, editables en manual)
