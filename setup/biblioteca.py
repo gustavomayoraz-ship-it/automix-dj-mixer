@@ -790,6 +790,7 @@ class Biblioteca(QListWidget):
             if r != QMessageBox.StandardButton.Yes:
                 return
         items = list(items.values())
+        siguiente = None if carpetas else self._tema_vecino(items)      # para seguir con Supr apretado: queda seleccionado el tema que seguía
         log("biblioteca", f"quitando {len(items)} tema(s)" + (f" · {len(carpetas)} carpeta(s)" if carpetas else ""))
         self._cargando = True
         try:
@@ -801,7 +802,33 @@ class Biblioteca(QListWidget):
             self._cargando = False
         if self.agrupado:
             self._quitar_cab(); self._poner_cab()
+        if siguiente:
+            self._seleccionar_ruta(siguiente)
         self.cambio.emit()
+
+    def _tema_vecino(self, quitados):
+        """Ruta del tema (no título de carpeta) que sigue al último de los quitados; si no hay, el que está justo antes."""
+        ids = {id(it) for it in quitados}
+        filas = [self.row(it) for it in quitados]
+        if not filas:
+            return None
+        despues = [self.item(i) for i in range(max(filas) + 1, self.count())]
+        antes = [self.item(i) for i in range(min(filas) - 1, -1, -1)]
+        for it in despues + antes:
+            if id(it) not in ids and not self._es_cab(it):
+                return it.data(Qt.ItemDataRole.UserRole)
+        return None
+
+    def _seleccionar_ruta(self, ruta):
+        """Deja seleccionado (y como actual) el tema de esa ruta, para que Supr siga quitando el que viene."""
+        for i in range(self.count()):
+            it = self.item(i)
+            if not self._es_cab(it) and it.data(Qt.ItemDataRole.UserRole) == ruta:
+                self.clearSelection()
+                self.setCurrentItem(it)
+                it.setSelected(True)
+                self.scrollToItem(it)
+                return
 
     def _menu_contextual(self, pos):
         """Clic derecho: quitar de la lista el tema (o toda la carpeta, si se toca su título)."""
