@@ -298,29 +298,8 @@ class MezclaMixin:
             return self._pausa_s_interno()
 
     def _pausa_s_interno(self):
-        """Duración de la pausa del 50 %. Con ⚙ «Pausa hasta línea de compás»: termina justo en una línea de compás del tema que sale
-        (la 1.ª línea es donde el mezclador pasa el bajo; la pausa termina en esa línea o en una posterior, la más cercana a lo configurado), así
-        el resto del fundido sigue en el compás y no a media frase."""
-        base = float(cruce_auto.pausa_s())
-        if not cruce_auto.en_auto() or cruce_auto.PAUSA_EN_LINEA < 0.5 or base < 0.5:      # el manual dura exactamente lo que se eligió; el ajuste a la línea de compás es solo del Auto
-            return base
-        try:
-            sale = self.deck_a if getattr(self, "_cf_dir", "AB") == "AB" else self.deck_b
-            db = self._db_de(sale)
-            if len(db) < 4 or not sale.playing:
-                return base
-            pos = sale.position_virtual_seconds(); rate = max(1e-6, sale.rate_eff)
-            T = (db[db > pos + 0.05] - pos) / rate
-            if len(T) < 2:
-                return base
-            compas = float(np.median(np.diff(db[:64]))) / rate if len(db) > 2 else 2.0
-            t1 = float(T[0])                                        # línea donde se pasa el bajo
-            cand = [float(t) for t in T if t >= max(1.5, t1) and t <= base + 1.5 * compas]      # desde la línea del cambio de bajo en adelante
-            if not cand:
-                return base
-            return max(0.2, min(cand, key=lambda t: abs(t - base)))
-        except Exception:
-            return base
+        """Duración de la pausa: exactamente la que se eligió (Manual: «Pausa dura» del panel · Auto: la de su panel en ⚙ Ajustes)."""
+        return float(cruce_auto.pausa_s())
 
     def _punto_cruce_manual(self):
         """Modo Manual: (cruce, inicio de la rampa de B) en posición del crossfader (0..1) con los deslizadores actuales;

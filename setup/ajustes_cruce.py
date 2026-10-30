@@ -60,8 +60,6 @@ GRUPOS = [
     ("🥁 Frase y compás", [
         ("ESPERA_FRASE", "Esperar a la frase (s máx., 0 = no)", 0, 30, 1, "{:.0f} s",
          "Al llegar a la marca roja del auto-enganche, la mezcla espera (como mucho este tiempo) al próximo inicio de frase (cada 8 compases)\ndel tema que sale, así arranca en el \"1\" de la frase. 0 = arranca justo en la marca. Solo si la grilla del tema es firme."),
-        ("PAUSA_EN_LINEA", "Pausa del 50 % hasta la línea de compás", 0, 1, 1, "{:.0f}",
-         "1 = la pausa del medio del AUTO termina en una línea de compás del tema que sale (después del cambio de bajo), lo más cerca de la duración configurada.\n0 = dura siempre lo mismo. Solo vale en el Auto: la pausa del cruce manual dura exactamente lo que se elige en el panel «Forma de cruce A/B»."),
     ]),
 ]
 

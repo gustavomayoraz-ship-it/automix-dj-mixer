@@ -238,8 +238,10 @@ class BibliotecaMixin:
     def _pendientes(self):
         if self._fallidos is None:
             self._fallidos = set()
+        from setup.danados import _clave as _clave_danado
+        danados = getattr(self, "_danados", None) or set()       # los temas ya anotados como dañados (⚠) no se vuelven a intentar en cada arranque
         return [r for r in self.biblioteca.temas_sin_analisis()
-                if self.biblioteca._clave(r) not in self._fallidos and os.path.isfile(r)]
+                if self.biblioteca._clave(r) not in self._fallidos and os.path.isfile(r) and _clave_danado(r) not in danados]
 
     def _cerrar_dlg(self, dlg):
         """Cierra la ventanita del análisis y devuelve el reproductor. Primero el reproductor: si no, al cerrarse la

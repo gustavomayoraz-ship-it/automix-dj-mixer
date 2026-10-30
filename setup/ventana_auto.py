@@ -322,6 +322,7 @@ class AutomaticoMixin:
         self._actualizar_btn_danados()
 
     def _abrir_danados(self):
+        from setup.dialogo_danados import DialogoDanados            # (faltaba este import: el botón ⚠ daba NameError y la ventana no abría)
         DialogoDanados(self, self.historial_danados, self._danados_cambio).exec()
 
     def _tema_danado(self, path, deck):
