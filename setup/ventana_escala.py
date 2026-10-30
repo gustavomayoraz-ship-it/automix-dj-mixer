@@ -7,6 +7,9 @@ from setup.ajustes import AJ, ANCHO_LISTA, ESC_COMPACTO, ESC_MIN, ESC_MIN_COMPAC
 from setup.base import log
 
 
+FRAC_LISTA_MAX = 0.25      # en ventana grande, la lista ocupa al menos este porcentaje del ancho (si el usuario no movió el divisor)
+
+
 class EscalaMixin:
     """Tamaño de la ventana, escala de la interfaz y posición en pantalla (parte de la ventana principal)."""
 
@@ -145,8 +148,9 @@ class EscalaMixin:
             # Se restaura con la ventana invisible, se acomoda en la esquina y recién ahí se muestra: sin pasar a la vista por el centro.
             self.setWindowOpacity(0.0)
             self.showNormal()                          # el cambio de estado lo procesa Qt; después se acomoda
-            QTimer.singleShot(450, lambda: self.setWindowOpacity(1.0))
-        def _pasada():
+            self._oculta_esquina = True; self._firma_esquina = None
+            QTimer.singleShot(1500, lambda: self.setWindowOpacity(1.0))     # (red de seguridad: nunca queda invisible)
+        def _pasada(ultima=False):
             if gen != self._gen_esquina:               # se apretó otra vez: manda la pasada nueva
                 return
             self._aplicar_escala(self._esc_min())
@@ -156,8 +160,17 @@ class EscalaMixin:
             QApplication.processEvents()
             self._escalar_segun_ventana()
             self._ajustar_a_pantalla(esquina=True)
-        for ms in (0, 120, 300, 600, 1000):
+            if getattr(self, "_oculta_esquina", False):
+                # La ventana reaparece recién cuando ya quedó firme (tamaño, posición y escala iguales en dos pasadas seguidas):
+                # así no se ve el reescalado en pasos, solo aparece ya acomodada en la esquina.
+                firma = (self.width(), self.height(), self.x(), self.y(), round(self._esc_actual, 3))
+                if ultima or firma == self._firma_esquina:
+                    self._oculta_esquina = False
+                    self.setWindowOpacity(1.0)
+                self._firma_esquina = firma
+        for ms in (0, 120, 300, 600):
             QTimer.singleShot(ms, _pasada)
+        QTimer.singleShot(1000, lambda: _pasada(True))
 
     def _ajustar_a_pantalla(self, esquina=False):
         """Al iniciar: que la ventana entre en la pantalla (barra de tareas incluida), centrada, con el
@@ -207,11 +220,14 @@ class EscalaMixin:
             self._fijar_ancho_lista(tot)
 
     def _fijar_ancho_lista(self, tot=None):
-        """La lista de temas queda chica y de ancho fijo (solo cambia con la escala): al maximizar, todo el espacio que
-        sobra va al resto de la ventana (decks, paneles y timeline)."""
+        """La lista de temas tiene un ancho fijo (cambia con la escala); en ventanas grandes ocupa como mínimo un 25 % del ancho,
+        y el espacio que sobra va al resto de la ventana (decks, paneles y timeline)."""
         tot = tot or sum(self.split.sizes())
-        base = getattr(self, "_ancho_lista_base", None) or ANCHO_LISTA
+        propio = getattr(self, "_ancho_lista_base", None)             # ancho que dejó el usuario arrastrando el divisor (si lo movió)
+        base = propio or ANCHO_LISTA
         a = max(self.split.widget(0).minimumWidth(), int(round(base * self._esc_actual)))
+        if not propio:
+            a = max(a, int(round(tot * FRAC_LISTA_MAX)))               # ventana grande (maximizada): la lista crece un poco, con el resto de los controles repartidos
         self.split.setSizes([a, max(tot - a, 1)])
 
     def _aplicar_escala(self, s):
