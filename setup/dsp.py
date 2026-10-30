@@ -19,6 +19,7 @@ class MultibandaAuto:
     GATE_DB = -70.0
     K_EXCESO = (0.5, 0.5, 0.4)
     exceso = None
+    MK_AUTO = (0.0, 0.0, 2.0)     # compensación (dB) de graves / medios / agudos en automático: solo los agudos suben +2,0 dB (el tema suena menos apagado)
 
     def __init__(self, sr=44100):
         self.sr = sr
@@ -104,8 +105,7 @@ class MultibandaAuto:
                 if self.manual:                         # manual: Umbral y Ratio los calcula el programa igual que en automático; la Compensación la fija el usuario
                     self._mk[i] = float(self.man_comp[i])
                 else:
-                    mk_obj = float(np.clip(0.5 * max(0.0, 6.0 - off) * (1.0 - 1.0 / ratio), 0.0, 3.0))
-                    self._mk[i] += 0.12 * (mk_obj - self._mk[i])
+                    self._mk[i] += 0.12 * (self.MK_AUTO[i] - self._mk[i])          # automático: compensación fija, solo los agudos suben
                 objetivo = -reduccion + self._mk[i]
             tc = ataque if objetivo < g_prev else relaj
             a = math.exp(-dt / (tc / 1000.0))
