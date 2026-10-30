@@ -89,7 +89,7 @@ class EscalaMixin:
                 s_completa = s
                 self._mb_compacto(True)
                 s, _ = self._buscar_escala(lim_w, lim_h, ESC_MIN_COMPACTO)
-                log("ventana", f"pantalla baja ({ag.width()}x{ag.height()} útiles): modo compacto (tabla de bandas en ⚙ Ajustes) · escala mínima {s_completa:.2f} → {s:.2f}")
+                log("ventana", f"pantalla baja ({ag.width()}x{ag.height()} útiles): modo compacto (tabla de bandas oculta en automático) · escala mínima {s_completa:.2f} → {s:.2f}")
             elif s < ESC_MIN:
                 log("ventana", f"pantalla chica ({ag.width()}x{ag.height()} útiles): escala mínima ajustada de {ESC_MIN} a {s:.2f}")
         except Exception as e:
