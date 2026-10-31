@@ -326,6 +326,54 @@ class GlobalMixer:
             mix = mix + cola
         return mix
 
+    salida_pref = None                 # nombre (como lo muestra la lista) de la salida principal elegida; None = la predeterminada de Windows
+
+    def indice_salida(self, nombre):
+        """Índice de PortAudio de la salida estéreo con ese nombre (None si no hay nombre o no está conectada)."""
+        if not nombre:
+            return None
+        try:
+            for i, v, ch, api in Auriculares.listar():
+                if v == nombre and ch >= 2:
+                    return i
+        except Exception:
+            pass
+        return None
+
+    def iniciar(self, nombre=None):
+        """Abre la salida principal al arrancar: la elegida si sigue conectada, si no la predeterminada."""
+        idx = self.indice_salida(nombre)
+        try:
+            self.start(idx)
+            self.salida_pref = nombre if idx is not None else None
+        except Exception:
+            self.stream = None
+            self.salida_pref = None
+            self.start(None)
+
+    def cambiar_salida(self, nombre):
+        """Pasa la salida principal a otro dispositivo (None = la predeterminada). Corta el sonido un instante.
+        Devuelve True si quedó andando; si falla, vuelve a la que había."""
+        idx = self.indice_salida(nombre)
+        if nombre and idx is None:
+            return False
+        previo = self.salida_pref
+        self.stop()
+        try:
+            self.start(idx)
+        except Exception as e:
+            print(f"[audio] no se pudo abrir la salida principal «{nombre}» ({e})")
+            self.stream = None
+            for otro in (self.indice_salida(previo), None):
+                try:
+                    self.start(otro)
+                    break
+                except Exception:
+                    self.stream = None
+            return False
+        self.salida_pref = nombre or None
+        return True
+
     def start(self, device=None):
         if self.stream is not None:
             return
@@ -414,7 +462,11 @@ class GlobalMixer:
             except Exception as e:
                 print(f"[audio] no se pudo reiniciar PortAudio ({e})")
             try:
-                self.start(None)
+                try:
+                    self.start(self.indice_salida(self.salida_pref))         # la salida elegida si volvió; si no, la predeterminada
+                except Exception:
+                    self.stream = None
+                    self.start(None)
             except Exception as e:
                 self.stream = None
                 print(f"[audio] sin salida disponible todavía ({e})")

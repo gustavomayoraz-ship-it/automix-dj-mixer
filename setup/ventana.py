@@ -217,7 +217,7 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
 
         self.mixer = GlobalMixer(self.deck_a, self.deck_b, sr=44100, blocksize=1024)
         self.mixer.comp_activo = self.comp_nivel
-        self.mixer.start()
+        self.mixer.iniciar(leer_config().get("salida_principal") or None)      # la salida principal elegida (si no, la predeterminada de Windows)
 
         cf_row = QHBoxLayout()           # el crossfader va en el panel de la derecha de los deslizadores
         self._cf_row = cf_row
@@ -564,6 +564,8 @@ class AutoMix(MultibandaMixin, EfectosMixin, LoopMixin, AuricularesMixin, Automa
         try: self.f2_global.quitar()
         except Exception: pass
         try: self.vol_global.quitar()
+        except Exception: pass
+        try: self.flechas_slider.quitar()
         except Exception: pass
         try:
             if self.mixer.grabador.activo:

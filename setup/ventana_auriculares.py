@@ -72,6 +72,19 @@ class AuricularesMixin:
         col.addLayout(fila_p)
         self._prev_timer = QTimer(self); self._prev_timer.setInterval(120)
         self._prev_timer.timeout.connect(self._prev_tick)
+        self.cmb_sal = _ComboRefresco(self._sal_refrescar)          # salida PRINCIPAL (parlantes): la que se elige acá sale de la lista de auriculares
+        self.cmb_sal.setFixedHeight(26)
+        self.cmb_sal.setMinimumContentsLength(14)
+        self.cmb_sal.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.cmb_sal.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.cmb_sal.setToolTip("Salida de sonido PRINCIPAL (los parlantes o la consola). Al elegirla se saca de la lista de auriculares.\n"
+                                "Al cambiarla el sonido se corta un instante.")
+        self.cmb_sal.addItem(self._SAL_DEFECTO, None)
+        if self.mixer.salida_pref:
+            self.cmb_sal.addItem(self.mixer.salida_pref, self.mixer.salida_pref)
+            self.cmb_sal.setCurrentIndex(1)
+        self.cmb_sal.currentIndexChanged.connect(self._sal_cambio)
+        col.addWidget(self.cmb_sal)
         self.cmb_aur = _ComboRefresco(self._aur_refrescar)
         self.cmb_aur.setFixedHeight(26)
         self.cmb_aur.setMinimumContentsLength(14)
@@ -99,6 +112,44 @@ class AuricularesMixin:
             self.cmb_aur.addItem(self._aur_nombre_pref, self._aur_nombre_pref)
             self.cmb_aur.setCurrentIndex(1)
         self.cmb_aur.currentIndexChanged.connect(self._aur_dispositivo_cambio)
+
+    _SAL_DEFECTO = "🔊 Principal: la predeterminada de Windows"
+
+    def _sal_refrescar(self):
+        """Lista todas las salidas estéreo que detecta Windows (también la del DAC USB), manteniendo la elegida."""
+        dev = [x for x in self.mixer.aur.listar() if x[2] >= 2]
+        actual = self.mixer.salida_pref
+        bloq = self.cmb_sal.blockSignals(True)
+        self.cmb_sal.clear()
+        self.cmb_sal.addItem(self._SAL_DEFECTO, None)
+        for idx, nombre, ch, api in dev:
+            self.cmb_sal.addItem(nombre, nombre)
+        i = self.cmb_sal.findData(actual) if actual else 0
+        self.cmb_sal.setCurrentIndex(i if i >= 0 else 0)
+        self.cmb_sal.blockSignals(bloq)
+
+    def _sal_cambio(self, *_):
+        """Cambió la salida principal: se abre en ese dispositivo y se saca de la lista de auriculares."""
+        nombre = self.cmb_sal.currentData()
+        if nombre == self.mixer.salida_pref:
+            return
+        antes = self.cmb_aur.currentData()                  # los auriculares que había elegidos
+        if self.mixer.cambiar_salida(nombre):
+            guardar_config(salida_principal=nombre or "")
+            self._aur_refrescar()                      # (la salida principal ya no aparece en la lista de auriculares)
+            log("audio", f"salida principal: {nombre or 'la predeterminada de Windows'}")
+            msg = f"🔊 Salida principal: {nombre or self.mixer.nombre_salida()}"
+            if antes and self.cmb_aur.currentData() is None:     # los auriculares usaban justo esa salida: pasan a «sin auriculares»
+                self.mixer.aur.cerrar()
+                for b in list(self.btn_cue.values()) + list(self.btn_prev.values()):
+                    b.blockSignals(True); b.setChecked(False); b.blockSignals(False)
+                guardar_config(aur_nombre="")
+                self._aur_nombre_pref = ""
+                msg += " · los auriculares usaban esa salida: quedaron sin auriculares"
+            self._set_status(msg)
+        else:
+            self._set_status(f"⚠️ No se pudo abrir «{nombre}» como salida principal: queda la anterior")
+            self._sal_refrescar()
 
     def _aur_refrescar(self):
         """Lee los dispositivos de salida y los pone en la lista, manteniendo la elección."""
